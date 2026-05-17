@@ -8,286 +8,186 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+const initialForm = {
+  interaction_type: "Phone Call",
+  contact_name: "",
+  contact_position: "",
+  company_name: "",
+  phone: "",
+  email: "",
+  whatsapp_number: "",
+  topic: "",
+  discussion_notes: "",
+  agreed_actions: "",
+  promised_by_us: "",
+  pending_from_them: "",
+  follow_up_date: "",
+  follow_up_time: "",
+  priority: "Medium",
+  pipeline_stage: "Interested",
+  calendar_event_required: false,
+  whatsapp_followup_required: false,
+};
+
 export default function Home() {
   const [tasks, setTasks] = useState([]);
-  const [title, setTitle] = useState("");
-  const [voiceText, setVoiceText] = useState("");
-  const [activeTab, setActiveTab] = useState("home");
-  const [listening, setListening] = useState(false);
-  const [voiceMessage, setVoiceMessage] = useState("");
-  const [taskFilter, setTaskFilter] = useState("active");
-
-  const [meetingTitle, setMeetingTitle] = useState("");
-  const [meetingNotes, setMeetingNotes] = useState("");
-  const [summary, setSummary] = useState("");
-  const [actionItems, setActionItems] = useState([]);
-  const [notesMessage, setNotesMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("intake");
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState(initialForm);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     fetchTasks();
   }, []);
 
   async function fetchTasks() {
-    const { data } = await supabase.from("tasks").select("*");
+    const { data } = await supabase
+      .from("tasks")
+      .select("*")
+      .order("created_at", { ascending: false });
+
     setTasks(data || []);
   }
 
-  async function addTask(customTitle = title, type = "Follow Up", priority = "Medium") {
-    if (!customTitle.trim()) return;
+  function updateField(field, value) {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
+
+  function nextStep() {
+    setMessage("");
+    setStep((prev) => Math.min(prev + 1, 5));
+  }
+
+  function previousStep() {
+    setMessage("");
+    setStep((prev) => Math.max(prev - 1, 1));
+  }
+
+  function buildTitle() {
+    const person = form.contact_name || "Επαφή";
+    const company = form.company_name ? ` / ${form.company_name}` : "";
+    const topic = form.topic ? ` - ${form.topic}` : "";
+    return `${form.interaction_type}: ${person}${company}${topic}`;
+  }
+
+  function buildWhatsappMessage() {
+    const name = form.contact_name || "";
+    const topic = form.topic || "το θέμα που συζητήσαμε";
+
+    return `Καλημέρα ${name}, σε συνέχεια της επικοινωνίας μας σχετικά με ${topic}, ήθελα να δω αν υπάρχει κάποιο νεότερο από την πλευρά σας.`;
+  }
+
+  async function saveRecord() {
+    setMessage("");
+
+    if (!form.contact_name && !form.company_name && !form.topic) {
+      setMessage("Συμπλήρωσε τουλάχιστον επαφή, εταιρεία ή θέμα.");
+      return;
+    }
+
+    const title = buildTitle();
+    const whatsappText = buildWhatsappMessage();
 
     const { error } = await supabase.from("tasks").insert([
       {
-        title: customTitle,
-        task_type: type,
-        priority,
+        title,
+        task_type: form.interaction_type,
+        interaction_type: form.interaction_type,
+        contact_name: form.contact_name,
+        contact_position: form.contact_position,
+        company_name: form.company_name,
+        phone: form.phone,
+        email: form.email,
+        whatsapp_number: form.whatsapp_number,
+        topic: form.topic,
+        discussion_notes: form.discussion_notes,
+        agreed_actions: form.agreed_actions,
+        promised_by_us: form.promised_by_us,
+        pending_from_them: form.pending_from_them,
+        follow_up_date: form.follow_up_date || null,
+        follow_up_time: form.follow_up_time || null,
+        priority: form.priority,
+        pipeline_stage: form.pipeline_stage,
+        calendar_event_required: form.calendar_event_required,
+        whatsapp_followup_required: form.whatsapp_followup_required,
+        whatsapp_message_template: whatsappText,
+        source: "guided_intake",
         status: "active",
       },
     ]);
 
     if (error) {
-      alert("Δεν μπόρεσε να αποθηκευτεί: " + error.message);
+      setMessage("Δεν αποθηκεύτηκε: " + error.message);
       return;
     }
 
-    setTitle("");
-    setVoiceText("");
-    setVoiceMessage("Η εκκρεμότητα αποθηκεύτηκε.");
+    setMessage("Η καταχώρηση αποθηκεύτηκε σωστά.");
+    setForm(initialForm);
+    setStep(1);
     fetchTasks();
+    setActiveTab("home");
   }
 
-  async function completeTask(id) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "completed" })
-      .eq("id", id);
+  function openWhatsapp(task) {
+    const phone = task.whatsapp_number || task.phone || "";
+    const text =
+      task.whatsapp_message_template ||
+      `Καλημέρα ${task.contact_name || ""}, σε συνέχεια της επικοινωνίας μας ήθελα να δω αν υπάρχει κάποιο νεότερο.`;
 
-    if (error) {
-      alert("Δεν ολοκληρώθηκε το task: " + error.message);
-      return;
-    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    const url = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
 
-    fetchTasks();
+    window.open(url, "_blank");
   }
 
-  async function reopenTask(id) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "active" })
-      .eq("id", id);
+  function openCalendarDraft(task) {
+    const title = encodeURIComponent(
+      `Follow-up: ${task.contact_name || task.company_name || task.topic || "Client"}`
+    );
 
-    if (error) {
-      alert("Δεν άνοιξε ξανά το task: " + error.message);
-      return;
-    }
+    const details = encodeURIComponent(
+      `Εταιρεία: ${task.company_name || ""}
+Επαφή: ${task.contact_name || ""}
+Θέση: ${task.contact_position || ""}
+Θέμα: ${task.topic || ""}
+Τι ειπώθηκε: ${task.discussion_notes || ""}
+Τι συμφωνήθηκε: ${task.agreed_actions || ""}
+Υποσχεθήκαμε: ${task.promised_by_us || ""}
+Pending από αυτούς: ${task.pending_from_them || ""}`
+    );
 
-    fetchTasks();
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}`;
+
+    window.open(url, "_blank");
   }
-
-  async function deleteTask(id) {
-    const ok = confirm("Θέλεις σίγουρα να διαγραφεί αυτό το task;");
-
-    if (!ok) return;
-
-    const { error } = await supabase.from("tasks").delete().eq("id", id);
-
-    if (error) {
-      alert("Δεν διαγράφηκε το task: " + error.message);
-      return;
-    }
-
-    fetchTasks();
-  }
-
-  function detectTaskType(text) {
-    const lower = text.toLowerCase();
-
-    if (
-      lower.includes("πάρε") ||
-      lower.includes("τηλέφωνο") ||
-      lower.includes("τηλεφώνησε") ||
-      lower.includes("call")
-    ) {
-      return "Phone Call";
-    }
-
-    if (
-      lower.includes("στείλε") ||
-      lower.includes("email") ||
-      lower.includes("mail") ||
-      lower.includes("μήνυμα")
-    ) {
-      return "Email";
-    }
-
-    if (
-      lower.includes("ραντεβού") ||
-      lower.includes("συνάντηση") ||
-      lower.includes("meeting")
-    ) {
-      return "Meeting";
-    }
-
-    if (
-      lower.includes("προσφορά") ||
-      lower.includes("offer") ||
-      lower.includes("quotation")
-    ) {
-      return "Offer";
-    }
-
-    return "Task";
-  }
-
-  function processVoiceCommand() {
-    if (!voiceText.trim()) return;
-
-    const type = detectTaskType(voiceText);
-    addTask(voiceText, type);
-  }
-
-  function startListening() {
-    setVoiceMessage("");
-
-    if (typeof window === "undefined") return;
-
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setVoiceMessage(
-        "Το voice recognition δεν υποστηρίζεται σε αυτόν τον browser. Δοκίμασε Chrome."
-      );
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-
-    recognition.lang = "el-GR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () => {
-      setListening(true);
-      setVoiceMessage("Ακούω...");
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setVoiceText(transcript);
-      setVoiceMessage("Η φωνή μετατράπηκε σε κείμενο.");
-    };
-
-    recognition.onerror = (event) => {
-      setVoiceMessage("Σφάλμα μικροφώνου: " + event.error);
-      setListening(false);
-    };
-
-    recognition.onend = () => {
-      setListening(false);
-    };
-
-    recognition.start();
-  }
-
-  function analyzeMeetingNotes() {
-    setNotesMessage("");
-
-    if (!meetingNotes.trim()) {
-      setNotesMessage("Γράψε πρώτα σημειώσεις από τη συνάντηση.");
-      return;
-    }
-
-    const cleanText = meetingNotes.trim();
-
-    const sentences = cleanText
-      .split(/[\n.?!]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const shortSummary = sentences.slice(0, 2).join(". ");
-
-    const actionKeywords = [
-      "να ",
-      "πρέπει",
-      "χρειάζεται",
-      "θυμήσου",
-      "follow",
-      "στείλ",
-      "πάρε",
-      "καλέσ",
-      "προσφορά",
-      "ραντεβού",
-      "email",
-      "τηλέφωνο",
-    ];
-
-    const extracted = sentences
-      .filter((sentence) =>
-        actionKeywords.some((keyword) =>
-          sentence.toLowerCase().includes(keyword)
-        )
-      )
-      .map((sentence) => sentence.replace(/^[-•]\s*/, ""));
-
-    setSummary(shortSummary || cleanText.slice(0, 180));
-    setActionItems(extracted);
-    setNotesMessage("Η σημείωση αναλύθηκε.");
-  }
-
-  async function saveActionItemsAsTasks() {
-    if (actionItems.length === 0) {
-      setNotesMessage("Δεν υπάρχουν action items για αποθήκευση.");
-      return;
-    }
-
-    const rows = actionItems.map((item) => ({
-      title: item,
-      task_type: detectTaskType(item),
-      priority: "Medium",
-      status: "active",
-    }));
-
-    const { error } = await supabase.from("tasks").insert(rows);
-
-    if (error) {
-      setNotesMessage("Δεν αποθηκεύτηκαν τα tasks: " + error.message);
-      return;
-    }
-
-    setNotesMessage("Τα action items αποθηκεύτηκαν σαν tasks.");
-    fetchTasks();
-  }
-
-  const activeTasks = tasks.filter((task) => task.status !== "completed");
-  const completedTasks = tasks.filter((task) => task.status === "completed");
 
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-[#07111f]">
       <div className="max-w-md mx-auto min-h-screen bg-[#f7f9fd] pb-28">
-        <header className="flex items-center justify-between px-6 py-6">
-          <div>
-            <p className="text-xs text-blue-600 font-bold tracking-widest uppercase">
-              IntelliFlow V45
-            </p>
+        <header className="px-6 py-6">
+          <p className="text-xs text-blue-600 font-bold tracking-widest uppercase">
+            V45 Guided Secretary
+          </p>
 
-            <h1 className="text-3xl font-black mt-1">
-              {activeTab === "home" && "Καλημέρα, Alex"}
-              {activeTab === "voice" && "Voice Command"}
-              {activeTab === "notes" && "Meeting Intelligence"}
-              {activeTab === "tasks" && "Tasks"}
-            </h1>
+          <h1 className="text-3xl font-black mt-1">
+            {activeTab === "home" && "Business Command Center"}
+            {activeTab === "intake" && "Νέα Καταχώρηση"}
+            {activeTab === "tasks" && "Follow-ups"}
+          </h1>
 
-            <p className="text-zinc-500 mt-1">
-              {activeTab === "home" && "Η σημερινή σου εικόνα, καθαρά και οργανωμένα."}
-              {activeTab === "voice" && "Υπαγόρευσε σημείωση ή εκκρεμότητα."}
-              {activeTab === "notes" && "Μετατροπή σημειώσεων σε action items."}
-              {activeTab === "tasks" && "Διαχείριση εκκρεμοτήτων."}
-            </p>
-          </div>
-
-          <div className="w-12 h-12 rounded-full bg-white shadow flex items-center justify-center">
-            🔔
-          </div>
+          <p className="text-zinc-500 mt-1">
+            {activeTab === "home" &&
+              "Η γραμματέας σου οργανώνει επαφές, pending και follow-ups."}
+            {activeTab === "intake" &&
+              "Θα σε ρωτήσω βήμα-βήμα για να καταχωρηθεί σωστά."}
+            {activeTab === "tasks" &&
+              "Όλες οι εκκρεμότητες και οι επόμενες ενέργειες."}
+          </p>
         </header>
 
         {activeTab === "home" && (
@@ -295,201 +195,362 @@ export default function Home() {
             <section className="px-6">
               <div className="rounded-[2rem] bg-[#071a33] text-white p-6 shadow-xl">
                 <p className="text-blue-300 text-xs font-bold uppercase tracking-widest">
-                  AI Suggestion
+                  Secretary Intelligence
                 </p>
 
                 <h2 className="text-2xl font-black mt-4 leading-tight">
-                  Έχεις {activeTasks.length} ανοιχτές εκκρεμότητες.
+                  Έχεις {tasks.length} καταχωρήσεις προς διαχείριση.
                 </h2>
 
                 <p className="text-blue-100 mt-3 text-sm">
-                  Ολοκληρωμένα σήμερα: {completedTasks.length}.
+                  Καταχώρησε τηλεφώνημα, ραντεβού ή follow-up με σωστή δομή.
                 </p>
-              </div>
-            </section>
-
-            <section className="px-6 mt-7">
-              <h2 className="font-black text-xl mb-4">Quick Add Task</h2>
-
-              <div className="bg-white rounded-[1.5rem] p-4 shadow">
-                <input
-                  className="w-full bg-[#f1f5fb] rounded-2xl p-4 outline-none"
-                  placeholder="Γράψε νέα εκκρεμότητα..."
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
 
                 <button
-                  onClick={() => addTask()}
-                  className="w-full bg-[#071a33] text-white rounded-2xl p-4 mt-3 font-bold"
+                  onClick={() => setActiveTab("intake")}
+                  className="mt-5 bg-blue-600 text-white rounded-2xl px-5 py-3 font-bold"
                 >
-                  Add Task
+                  Νέα Καταχώρηση
                 </button>
               </div>
             </section>
 
-            <TaskList
-              tasks={activeTasks.slice(0, 5)}
-              title="Today Focus"
-              completeTask={completeTask}
-              reopenTask={reopenTask}
-              deleteTask={deleteTask}
+            <FollowUpList
+              tasks={tasks.slice(0, 5)}
+              openWhatsapp={openWhatsapp}
+              openCalendarDraft={openCalendarDraft}
             />
           </>
         )}
 
-        {activeTab === "voice" && (
-          <section className="px-6 mt-8 text-center">
-            <button
-              onClick={startListening}
-              className={`w-56 h-56 rounded-full mx-auto flex items-center justify-center shadow-2xl transition ${
-                listening ? "bg-red-500 scale-105" : "bg-blue-600"
-              }`}
-            >
-              <span className="text-white text-7xl">🎙</span>
-            </button>
-
-            <h2 className="text-3xl font-black mt-10">
-              {listening ? "Σε ακούω..." : "Υπαγόρευσε την εκκρεμότητα"}
-            </h2>
-
-            <p className="text-zinc-500 mt-3">
-              Πάτα το μικρόφωνο, μίλησε, και μετά πάτα Done.
-            </p>
-
-            {voiceMessage && (
-              <div className="mt-5 bg-blue-50 text-blue-700 rounded-2xl p-4 font-bold">
-                {voiceMessage}
-              </div>
-            )}
-
-            <div className="bg-white rounded-[1.5rem] p-4 shadow mt-8">
-              <textarea
-                className="w-full bg-[#f1f5fb] rounded-2xl p-4 outline-none min-h-28"
-                placeholder="π.χ. Θύμισέ μου να πάρω τον Fabio αύριο..."
-                value={voiceText}
-                onChange={(e) => setVoiceText(e.target.value)}
-              />
-
-              <button
-                onClick={processVoiceCommand}
-                className="w-full bg-[#071a33] text-white rounded-2xl p-4 mt-3 font-bold"
-              >
-                Done
-              </button>
-            </div>
-          </section>
-        )}
-
-        {activeTab === "notes" && (
-          <section className="px-6 mt-4">
+        {activeTab === "intake" && (
+          <section className="px-6">
             <div className="bg-white rounded-[1.5rem] p-5 shadow">
-              <input
-                className="w-full bg-[#f1f5fb] rounded-2xl p-4 outline-none mb-3"
-                placeholder="Τίτλος συνάντησης..."
-                value={meetingTitle}
-                onChange={(e) => setMeetingTitle(e.target.value)}
-              />
-
-              <textarea
-                className="w-full bg-[#f1f5fb] rounded-2xl p-4 outline-none min-h-40"
-                placeholder="Γράψε ή επικόλλησε τις σημειώσεις της συνάντησης..."
-                value={meetingNotes}
-                onChange={(e) => setMeetingNotes(e.target.value)}
-              />
-
-              <button
-                onClick={analyzeMeetingNotes}
-                className="w-full bg-blue-600 text-white rounded-2xl p-4 mt-3 font-bold"
-              >
-                Analyze Notes
-              </button>
-
-              <button
-                onClick={saveActionItemsAsTasks}
-                className="w-full bg-[#071a33] text-white rounded-2xl p-4 mt-3 font-bold"
-              >
-                Save Action Items as Tasks
-              </button>
-            </div>
-
-            {notesMessage && (
-              <div className="mt-5 bg-blue-50 text-blue-700 rounded-2xl p-4 font-bold">
-                {notesMessage}
+              <div className="flex justify-between items-center mb-5">
+                <span className="text-sm font-bold text-blue-600">
+                  Βήμα {step}/5
+                </span>
+                <span className="text-sm text-zinc-400">
+                  Guided Intake
+                </span>
               </div>
-            )}
 
-            {summary && (
-              <div className="mt-6 bg-white rounded-[1.5rem] p-5 shadow">
-                <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
-                  AI Summary
-                </p>
+              {step === 1 && (
+                <>
+                  <h2 className="text-2xl font-black mb-4">
+                    Τι θέλεις να καταχωρήσουμε;
+                  </h2>
 
-                <h3 className="font-black text-xl mt-2">
-                  {meetingTitle || "Meeting Summary"}
-                </h3>
+                  <label className="label">Είδος επικοινωνίας</label>
+                  <select
+                    className="input"
+                    value={form.interaction_type}
+                    onChange={(e) =>
+                      updateField("interaction_type", e.target.value)
+                    }
+                  >
+                    <option>Phone Call</option>
+                    <option>Meeting</option>
+                    <option>WhatsApp</option>
+                    <option>Email</option>
+                    <option>Presentation</option>
+                    <option>Offer Follow-up</option>
+                    <option>Reminder</option>
+                  </select>
 
-                <p className="text-zinc-600 mt-3">{summary}</p>
-              </div>
-            )}
+                  <label className="label">Θέμα</label>
+                  <input
+                    className="input"
+                    placeholder="π.χ. VITO VM προσφορά, Waveco demo..."
+                    value={form.topic}
+                    onChange={(e) => updateField("topic", e.target.value)}
+                  />
 
-            {actionItems.length > 0 && (
-              <div className="mt-6 bg-white rounded-[1.5rem] p-5 shadow">
-                <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
-                  Action Items
-                </p>
+                  <label className="label">Προτεραιότητα</label>
+                  <select
+                    className="input"
+                    value={form.priority}
+                    onChange={(e) => updateField("priority", e.target.value)}
+                  >
+                    <option>Low</option>
+                    <option>Medium</option>
+                    <option>High</option>
+                    <option>Urgent</option>
+                  </select>
+                </>
+              )}
 
-                <div className="space-y-3 mt-4">
-                  {actionItems.map((item, index) => (
-                    <div key={index} className="flex gap-3">
-                      <div className="w-6 h-6 rounded-md border-2 border-blue-600"></div>
-                      <p className="font-bold">{item}</p>
-                    </div>
-                  ))}
+              {step === 2 && (
+                <>
+                  <h2 className="text-2xl font-black mb-4">
+                    Με ποιον μίλησες;
+                  </h2>
+
+                  <label className="label">Όνομα επαφής</label>
+                  <input
+                    className="input"
+                    placeholder="π.χ. Fabio, Hector, Chef Suren..."
+                    value={form.contact_name}
+                    onChange={(e) =>
+                      updateField("contact_name", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Θέση</label>
+                  <input
+                    className="input"
+                    placeholder="Owner, Chef, Purchasing Manager..."
+                    value={form.contact_position}
+                    onChange={(e) =>
+                      updateField("contact_position", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Εταιρεία</label>
+                  <input
+                    className="input"
+                    placeholder="π.χ. Waveco, Burger Shop Nicosia..."
+                    value={form.company_name}
+                    onChange={(e) =>
+                      updateField("company_name", e.target.value)
+                    }
+                  />
+                </>
+              )}
+
+              {step === 3 && (
+                <>
+                  <h2 className="text-2xl font-black mb-4">
+                    Στοιχεία επικοινωνίας
+                  </h2>
+
+                  <label className="label">Τηλέφωνο</label>
+                  <input
+                    className="input"
+                    placeholder="+357..."
+                    value={form.phone}
+                    onChange={(e) => updateField("phone", e.target.value)}
+                  />
+
+                  <label className="label">WhatsApp</label>
+                  <input
+                    className="input"
+                    placeholder="+357..."
+                    value={form.whatsapp_number}
+                    onChange={(e) =>
+                      updateField("whatsapp_number", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Email</label>
+                  <input
+                    className="input"
+                    placeholder="email@company.com"
+                    value={form.email}
+                    onChange={(e) => updateField("email", e.target.value)}
+                  />
+                </>
+              )}
+
+              {step === 4 && (
+                <>
+                  <h2 className="text-2xl font-black mb-4">
+                    Τι έγινε στην επικοινωνία;
+                  </h2>
+
+                  <label className="label">Τι ειπώθηκε;</label>
+                  <textarea
+                    className="textarea"
+                    placeholder="Γράψε ελεύθερα τι συζητήθηκε..."
+                    value={form.discussion_notes}
+                    onChange={(e) =>
+                      updateField("discussion_notes", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Τι συμφωνήθηκε;</label>
+                  <textarea
+                    className="textarea"
+                    placeholder="π.χ. Να στείλουμε προσφορά, να γίνει demo..."
+                    value={form.agreed_actions}
+                    onChange={(e) =>
+                      updateField("agreed_actions", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Τι υποσχεθήκαμε εμείς;</label>
+                  <textarea
+                    className="textarea"
+                    placeholder="π.χ. ROI, brochure, τεχνικά στοιχεία..."
+                    value={form.promised_by_us}
+                    onChange={(e) =>
+                      updateField("promised_by_us", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Τι περιμένουμε από αυτούς;</label>
+                  <textarea
+                    className="textarea"
+                    placeholder="π.χ. απάντηση, φωτογραφίες, στοιχεία λαδιού..."
+                    value={form.pending_from_them}
+                    onChange={(e) =>
+                      updateField("pending_from_them", e.target.value)
+                    }
+                  />
+                </>
+              )}
+
+              {step === 5 && (
+                <>
+                  <h2 className="text-2xl font-black mb-4">
+                    Follow-up και υπενθύμιση
+                  </h2>
+
+                  <label className="label">Ημερομηνία follow-up</label>
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.follow_up_date}
+                    onChange={(e) =>
+                      updateField("follow_up_date", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Ώρα follow-up</label>
+                  <input
+                    className="input"
+                    type="time"
+                    value={form.follow_up_time}
+                    onChange={(e) =>
+                      updateField("follow_up_time", e.target.value)
+                    }
+                  />
+
+                  <label className="label">Στάδιο πώλησης</label>
+                  <select
+                    className="input"
+                    value={form.pipeline_stage}
+                    onChange={(e) =>
+                      updateField("pipeline_stage", e.target.value)
+                    }
+                  >
+                    <option>Lead</option>
+                    <option>Interested</option>
+                    <option>Offer Sent</option>
+                    <option>Waiting Reply</option>
+                    <option>Demo Needed</option>
+                    <option>Negotiation</option>
+                    <option>Won</option>
+                    <option>Lost</option>
+                  </select>
+
+                  <div className="space-y-3 mt-4">
+                    <label className="flex items-center gap-3 bg-[#f1f5fb] rounded-2xl p-4 font-bold">
+                      <input
+                        type="checkbox"
+                        checked={form.calendar_event_required}
+                        onChange={(e) =>
+                          updateField(
+                            "calendar_event_required",
+                            e.target.checked
+                          )
+                        }
+                      />
+                      Να μπει στο Google Calendar
+                    </label>
+
+                    <label className="flex items-center gap-3 bg-[#f1f5fb] rounded-2xl p-4 font-bold">
+                      <input
+                        type="checkbox"
+                        checked={form.whatsapp_followup_required}
+                        onChange={(e) =>
+                          updateField(
+                            "whatsapp_followup_required",
+                            e.target.checked
+                          )
+                        }
+                      />
+                      Να ετοιμαστεί WhatsApp follow-up
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {message && (
+                <div className="mt-4 bg-blue-50 text-blue-700 rounded-2xl p-4 font-bold">
+                  {message}
                 </div>
+              )}
+
+              <div className="flex gap-3 mt-6">
+                {step > 1 && (
+                  <button
+                    onClick={previousStep}
+                    className="flex-1 bg-zinc-100 text-zinc-700 rounded-2xl p-4 font-bold"
+                  >
+                    Πίσω
+                  </button>
+                )}
+
+                {step < 5 && (
+                  <button
+                    onClick={nextStep}
+                    className="flex-1 bg-[#071a33] text-white rounded-2xl p-4 font-bold"
+                  >
+                    Επόμενο
+                  </button>
+                )}
+
+                {step === 5 && (
+                  <button
+                    onClick={saveRecord}
+                    className="flex-1 bg-blue-600 text-white rounded-2xl p-4 font-bold"
+                  >
+                    Αποθήκευση
+                  </button>
+                )}
               </div>
-            )}
+            </div>
           </section>
         )}
 
         {activeTab === "tasks" && (
-          <section className="px-6 mt-4">
-            <div className="flex gap-3 mb-5">
-              <button
-                onClick={() => setTaskFilter("active")}
-                className={`flex-1 rounded-2xl p-3 font-bold ${
-                  taskFilter === "active"
-                    ? "bg-[#071a33] text-white"
-                    : "bg-white text-zinc-500"
-                }`}
-              >
-                Active
-              </button>
-
-              <button
-                onClick={() => setTaskFilter("completed")}
-                className={`flex-1 rounded-2xl p-3 font-bold ${
-                  taskFilter === "completed"
-                    ? "bg-[#071a33] text-white"
-                    : "bg-white text-zinc-500"
-                }`}
-              >
-                Completed
-              </button>
-            </div>
-
-            <TaskList
-              tasks={taskFilter === "active" ? activeTasks : completedTasks}
-              title={taskFilter === "active" ? "Active Tasks" : "Completed Tasks"}
-              completeTask={completeTask}
-              reopenTask={reopenTask}
-              deleteTask={deleteTask}
-            />
-          </section>
+          <FollowUpList
+            tasks={tasks}
+            openWhatsapp={openWhatsapp}
+            openCalendarDraft={openCalendarDraft}
+          />
         )}
 
+        <style jsx>{`
+          .label {
+            display: block;
+            margin-top: 14px;
+            margin-bottom: 6px;
+            font-weight: 800;
+            color: #334155;
+          }
+
+          .input {
+            width: 100%;
+            background: #f1f5fb;
+            border-radius: 16px;
+            padding: 14px;
+            outline: none;
+          }
+
+          .textarea {
+            width: 100%;
+            background: #f1f5fb;
+            border-radius: 16px;
+            padding: 14px;
+            outline: none;
+            min-height: 90px;
+          }
+        `}</style>
+
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-200">
-          <div className="max-w-md mx-auto grid grid-cols-4 text-center py-3">
+          <div className="max-w-md mx-auto grid grid-cols-3 text-center py-3">
             <button
               onClick={() => setActiveTab("home")}
               className={activeTab === "home" ? "text-blue-600 font-bold" : ""}
@@ -498,24 +559,19 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => setActiveTab("voice")}
-              className={activeTab === "voice" ? "text-blue-600 font-bold" : ""}
+              onClick={() => setActiveTab("intake")}
+              className={
+                activeTab === "intake" ? "text-blue-600 font-bold" : ""
+              }
             >
-              🎙<br />Voice
-            </button>
-
-            <button
-              onClick={() => setActiveTab("notes")}
-              className={activeTab === "notes" ? "text-blue-600 font-bold" : ""}
-            >
-              📄<br />Notes
+              +<br />Intake
             </button>
 
             <button
               onClick={() => setActiveTab("tasks")}
               className={activeTab === "tasks" ? "text-blue-600 font-bold" : ""}
             >
-              ✅<br />Tasks
+              ✅<br />Follow-ups
             </button>
           </div>
         </nav>
@@ -524,11 +580,11 @@ export default function Home() {
   );
 }
 
-function TaskList({ tasks, title, completeTask, reopenTask, deleteTask }) {
+function FollowUpList({ tasks, openWhatsapp, openCalendarDraft }) {
   return (
     <section className="px-6 mt-7">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-black text-xl">{title}</h2>
+        <h2 className="font-black text-xl">Recent Follow-ups</h2>
 
         <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold">
           {tasks.length}
@@ -538,74 +594,80 @@ function TaskList({ tasks, title, completeTask, reopenTask, deleteTask }) {
       <div className="space-y-4">
         {tasks.length === 0 && (
           <div className="bg-white rounded-[1.5rem] p-5 shadow text-zinc-500">
-            Δεν υπάρχουν tasks εδώ.
+            Δεν υπάρχουν ακόμα καταχωρήσεις.
           </div>
         )}
 
-        {tasks.map((task) => {
-          const completed = task.status === "completed";
+        {tasks.map((task) => (
+          <div key={task.id} className="bg-white rounded-[1.5rem] p-5 shadow">
+            <div className="flex justify-between gap-3">
+              <div>
+                <p className="text-xs text-blue-600 font-black uppercase tracking-widest">
+                  {task.interaction_type || task.task_type || "Follow-up"}
+                </p>
 
-          return (
-            <div
-              key={task.id}
-              className={`bg-white rounded-[1.5rem] p-5 shadow ${
-                completed ? "opacity-60" : ""
-              }`}
-            >
-              <div className="flex gap-4">
-                <button
-                  onClick={() =>
-                    completed ? reopenTask(task.id) : completeTask(task.id)
-                  }
-                  className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center ${
-                    completed
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "border-blue-600"
-                  }`}
-                >
-                  {completed ? "✓" : ""}
-                </button>
+                <h3 className="font-black text-lg mt-1">
+                  {task.contact_name || task.title}
+                </h3>
 
-                <div className="flex-1">
-                  <h3
-                    className={`font-black text-lg ${
-                      completed ? "line-through text-zinc-500" : ""
-                    }`}
-                  >
-                    {task.title}
-                  </h3>
-
-                  <p className="text-zinc-500 mt-1">
-                    {task.task_type || "Task"}
-                  </p>
-
-                  <div className="flex gap-2 mt-3 flex-wrap">
-                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
-                      {task.priority || "Medium"}
-                    </span>
-
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        completed
-                          ? "bg-green-100 text-green-700"
-                          : "bg-zinc-100 text-zinc-600"
-                      }`}
-                    >
-                      {completed ? "Completed" : "Active"}
-                    </span>
-                  </div>
-                </div>
+                <p className="text-zinc-500">
+                  {task.company_name || task.topic || ""}
+                </p>
               </div>
 
+              <span className="bg-blue-50 text-blue-700 h-fit px-3 py-1 rounded-full text-xs font-bold">
+                {task.priority || "Medium"}
+              </span>
+            </div>
+
+            {task.topic && (
+              <p className="mt-4 font-bold text-zinc-700">
+                Θέμα: {task.topic}
+              </p>
+            )}
+
+            {task.agreed_actions && (
+              <p className="mt-3 text-zinc-600">
+                <strong>Συμφωνήθηκε:</strong> {task.agreed_actions}
+              </p>
+            )}
+
+            {task.promised_by_us && (
+              <p className="mt-3 text-zinc-600">
+                <strong>Υποσχεθήκαμε:</strong> {task.promised_by_us}
+              </p>
+            )}
+
+            {task.pending_from_them && (
+              <p className="mt-3 text-zinc-600">
+                <strong>Pending από αυτούς:</strong> {task.pending_from_them}
+              </p>
+            )}
+
+            {(task.follow_up_date || task.follow_up_time) && (
+              <div className="mt-4 bg-[#f1f5fb] rounded-2xl p-3 font-bold text-blue-700">
+                Follow-up: {task.follow_up_date || ""}{" "}
+                {task.follow_up_time || ""}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
               <button
-                onClick={() => deleteTask(task.id)}
-                className="w-full mt-4 bg-red-50 text-red-600 rounded-2xl p-3 font-bold"
+                onClick={() => openCalendarDraft(task)}
+                className="bg-[#071a33] text-white rounded-2xl p-3 font-bold"
               >
-                Delete
+                Calendar
+              </button>
+
+              <button
+                onClick={() => openWhatsapp(task)}
+                className="bg-green-100 text-green-700 rounded-2xl p-3 font-bold"
+              >
+                WhatsApp
               </button>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </section>
   );
