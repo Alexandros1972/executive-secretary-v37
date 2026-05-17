@@ -15,6 +15,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("home");
   const [listening, setListening] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
+  const [taskFilter, setTaskFilter] = useState("active");
 
   const [meetingTitle, setMeetingTitle] = useState("");
   const [meetingNotes, setMeetingNotes] = useState("");
@@ -39,6 +40,7 @@ export default function Home() {
         title: customTitle,
         task_type: type,
         priority,
+        status: "active",
       },
     ]);
 
@@ -50,6 +52,49 @@ export default function Home() {
     setTitle("");
     setVoiceText("");
     setVoiceMessage("Η εκκρεμότητα αποθηκεύτηκε.");
+    fetchTasks();
+  }
+
+  async function completeTask(id) {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "completed" })
+      .eq("id", id);
+
+    if (error) {
+      alert("Δεν ολοκληρώθηκε το task: " + error.message);
+      return;
+    }
+
+    fetchTasks();
+  }
+
+  async function reopenTask(id) {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "active" })
+      .eq("id", id);
+
+    if (error) {
+      alert("Δεν άνοιξε ξανά το task: " + error.message);
+      return;
+    }
+
+    fetchTasks();
+  }
+
+  async function deleteTask(id) {
+    const ok = confirm("Θέλεις σίγουρα να διαγραφεί αυτό το task;");
+
+    if (!ok) return;
+
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
+
+    if (error) {
+      alert("Δεν διαγράφηκε το task: " + error.message);
+      return;
+    }
+
     fetchTasks();
   }
 
@@ -199,6 +244,7 @@ export default function Home() {
       title: item,
       task_type: detectTaskType(item),
       priority: "Medium",
+      status: "active",
     }));
 
     const { error } = await supabase.from("tasks").insert(rows);
@@ -212,13 +258,16 @@ export default function Home() {
     fetchTasks();
   }
 
+  const activeTasks = tasks.filter((task) => task.status !== "completed");
+  const completedTasks = tasks.filter((task) => task.status === "completed");
+
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-[#07111f]">
       <div className="max-w-md mx-auto min-h-screen bg-[#f7f9fd] pb-28">
         <header className="flex items-center justify-between px-6 py-6">
           <div>
             <p className="text-xs text-blue-600 font-bold tracking-widest uppercase">
-              IntelliFlow V44
+              IntelliFlow V45
             </p>
 
             <h1 className="text-3xl font-black mt-1">
@@ -232,7 +281,7 @@ export default function Home() {
               {activeTab === "home" && "Η σημερινή σου εικόνα, καθαρά και οργανωμένα."}
               {activeTab === "voice" && "Υπαγόρευσε σημείωση ή εκκρεμότητα."}
               {activeTab === "notes" && "Μετατροπή σημειώσεων σε action items."}
-              {activeTab === "tasks" && "Όλες οι ανοιχτές εκκρεμότητες."}
+              {activeTab === "tasks" && "Διαχείριση εκκρεμοτήτων."}
             </p>
           </div>
 
@@ -250,11 +299,11 @@ export default function Home() {
                 </p>
 
                 <h2 className="text-2xl font-black mt-4 leading-tight">
-                  Βρήκα {tasks.length} ανοιχτές εκκρεμότητες.
+                  Έχεις {activeTasks.length} ανοιχτές εκκρεμότητες.
                 </h2>
 
                 <p className="text-blue-100 mt-3 text-sm">
-                  Μπορώ να οργανώσω τις σημερινές προτεραιότητες.
+                  Ολοκληρωμένα σήμερα: {completedTasks.length}.
                 </p>
               </div>
             </section>
@@ -279,7 +328,13 @@ export default function Home() {
               </div>
             </section>
 
-            <TaskList tasks={tasks} />
+            <TaskList
+              tasks={activeTasks.slice(0, 5)}
+              title="Today Focus"
+              completeTask={completeTask}
+              reopenTask={reopenTask}
+              deleteTask={deleteTask}
+            />
           </>
         )}
 
@@ -369,9 +424,11 @@ export default function Home() {
                 <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
                   AI Summary
                 </p>
+
                 <h3 className="font-black text-xl mt-2">
                   {meetingTitle || "Meeting Summary"}
                 </h3>
+
                 <p className="text-zinc-600 mt-3">{summary}</p>
               </div>
             )}
@@ -395,7 +452,41 @@ export default function Home() {
           </section>
         )}
 
-        {activeTab === "tasks" && <TaskList tasks={tasks} />}
+        {activeTab === "tasks" && (
+          <section className="px-6 mt-4">
+            <div className="flex gap-3 mb-5">
+              <button
+                onClick={() => setTaskFilter("active")}
+                className={`flex-1 rounded-2xl p-3 font-bold ${
+                  taskFilter === "active"
+                    ? "bg-[#071a33] text-white"
+                    : "bg-white text-zinc-500"
+                }`}
+              >
+                Active
+              </button>
+
+              <button
+                onClick={() => setTaskFilter("completed")}
+                className={`flex-1 rounded-2xl p-3 font-bold ${
+                  taskFilter === "completed"
+                    ? "bg-[#071a33] text-white"
+                    : "bg-white text-zinc-500"
+                }`}
+              >
+                Completed
+              </button>
+            </div>
+
+            <TaskList
+              tasks={taskFilter === "active" ? activeTasks : completedTasks}
+              title={taskFilter === "active" ? "Active Tasks" : "Completed Tasks"}
+              completeTask={completeTask}
+              reopenTask={reopenTask}
+              deleteTask={deleteTask}
+            />
+          </section>
+        )}
 
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-200">
           <div className="max-w-md mx-auto grid grid-cols-4 text-center py-3">
@@ -433,44 +524,88 @@ export default function Home() {
   );
 }
 
-function TaskList({ tasks }) {
+function TaskList({ tasks, title, completeTask, reopenTask, deleteTask }) {
   return (
     <section className="px-6 mt-7">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-black text-xl">Your Focus</h2>
+        <h2 className="font-black text-xl">{title}</h2>
 
         <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold">
-          {tasks.length} tasks
+          {tasks.length}
         </span>
       </div>
 
       <div className="space-y-4">
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className="bg-white rounded-[1.5rem] p-5 shadow flex gap-4"
-          >
-            <div className="w-7 h-7 rounded-lg border-2 border-blue-600"></div>
-
-            <div className="flex-1">
-              <h3 className="font-black text-lg">{task.title}</h3>
-
-              <p className="text-zinc-500 mt-1">
-                {task.task_type || "Task"}
-              </p>
-
-              <div className="flex gap-2 mt-3">
-                <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
-                  {task.priority || "Medium"}
-                </span>
-
-                <span className="bg-zinc-100 text-zinc-600 px-3 py-1 rounded-full text-xs font-bold">
-                  Active
-                </span>
-              </div>
-            </div>
+        {tasks.length === 0 && (
+          <div className="bg-white rounded-[1.5rem] p-5 shadow text-zinc-500">
+            Δεν υπάρχουν tasks εδώ.
           </div>
-        ))}
+        )}
+
+        {tasks.map((task) => {
+          const completed = task.status === "completed";
+
+          return (
+            <div
+              key={task.id}
+              className={`bg-white rounded-[1.5rem] p-5 shadow ${
+                completed ? "opacity-60" : ""
+              }`}
+            >
+              <div className="flex gap-4">
+                <button
+                  onClick={() =>
+                    completed ? reopenTask(task.id) : completeTask(task.id)
+                  }
+                  className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center ${
+                    completed
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "border-blue-600"
+                  }`}
+                >
+                  {completed ? "✓" : ""}
+                </button>
+
+                <div className="flex-1">
+                  <h3
+                    className={`font-black text-lg ${
+                      completed ? "line-through text-zinc-500" : ""
+                    }`}
+                  >
+                    {task.title}
+                  </h3>
+
+                  <p className="text-zinc-500 mt-1">
+                    {task.task_type || "Task"}
+                  </p>
+
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
+                      {task.priority || "Medium"}
+                    </span>
+
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        completed
+                          ? "bg-green-100 text-green-700"
+                          : "bg-zinc-100 text-zinc-600"
+                      }`}
+                    >
+                      {completed ? "Completed" : "Active"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => deleteTask(task.id)}
+                className="w-full mt-4 bg-red-50 text-red-600 rounded-2xl p-3 font-bold"
+              >
+                Delete
+              </button>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
