@@ -18,41 +18,37 @@ export default function Home() {
   async function fetchTasks() {
     const { data, error } = await supabase
       .from("tasks")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*");
 
-    if (!error) {
+    console.log(data);
+    console.log(error);
+
+    if (data) {
       setTasks(data);
     }
   }
 
   return (
     <main className="min-h-screen bg-black text-white p-10">
-      <h1 className="text-6xl font-bold text-yellow-400 mb-2">
+      <h1 className="text-5xl font-bold text-yellow-400 mb-8">
         Business Command Center
       </h1>
 
-      <p className="text-gray-400 mb-10">
-        Real-time executive secretary dashboard
-      </p>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="space-y-4">
         {tasks.map((task) => (
           <div
             key={task.id}
-            className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6"
+            className="border border-zinc-700 p-4 rounded-xl"
           >
-            <div className="text-yellow-400 text-sm mb-2">
+            <h2 className="text-xl font-bold">{task.title}</h2>
+
+            <p className="text-zinc-400">
               {task.task_type}
-            </div>
+            </p>
 
-            <h2 className="text-2xl font-bold mb-4">
-              {task.title}
-            </h2>
-
-            <div className="text-gray-400">
-              Priority: {task.priority}
-            </div>
+            <p className="text-yellow-400">
+              {task.priority}
+            </p>
           </div>
         ))}
       </div>
