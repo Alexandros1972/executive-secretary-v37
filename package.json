@@ -1,19 +1,6 @@
-{
-  "name": "executive-secretary-v37",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8.4.35",
-    "autoprefixer": "^10.4.18"
-  }
+"dependencies": {
+  "@supabase/supabase-js": "^2.45.4",
+  "next": "latest",
+  "react": "latest",
+  "react-dom": "latest"
 }
