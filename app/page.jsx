@@ -3,42 +3,44 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const supabase =
-  supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 export default function Home() {
   const [tasks, setTasks] = useState([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState("");
+  const [taskType, setTaskType] = useState("Phone Call");
+  const [priority, setPriority] = useState("Medium");
 
   useEffect(() => {
-    async function fetchTasks() {
-      if (!supabase) {
-        setError("Supabase URL or Key is missing.");
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase.from("tasks").select("*");
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setTasks(data || []);
-      }
-
-      setLoading(false);
-    }
-
     fetchTasks();
   }, []);
 
+  async function fetchTasks() {
+    const { data } = await supabase.from("tasks").select("*");
+    setTasks(data || []);
+  }
+
+  async function addTask() {
+    if (!title.trim()) return;
+
+    await supabase.from("tasks").insert([
+      {
+        title,
+        task_type: taskType,
+        priority,
+      },
+    ]);
+
+    setTitle("");
+    fetchTasks();
+  }
+
   return (
     <main className="min-h-screen bg-black text-white p-8">
-      <h1 className="text-5xl font-bold text-yellow-400 mb-4">
+      <h1 className="text-5xl font-bold text-yellow-400 mb-2">
         Business Command Center
       </h1>
 
@@ -46,27 +48,59 @@ export default function Home() {
         Real-time executive secretary dashboard
       </p>
 
-      {loading && <p>Loading tasks...</p>}
+      <section className="border border-zinc-800 rounded-2xl p-5 mb-8 max-w-3xl">
+        <h2 className="text-2xl font-bold mb-4 text-yellow-400">
+          Add New Task
+        </h2>
 
-      {error && (
-        <div className="border border-red-500 text-red-400 p-4 rounded-xl">
-          Error: {error}
+        <input
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl p-3 mb-3"
+          placeholder="Task title..."
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <select
+            className="bg-zinc-900 border border-zinc-700 rounded-xl p-3"
+            value={taskType}
+            onChange={(e) => setTaskType(e.target.value)}
+          >
+            <option>Phone Call</option>
+            <option>Email</option>
+            <option>Meeting</option>
+            <option>Offer</option>
+            <option>Follow Up</option>
+          </select>
+
+          <select
+            className="bg-zinc-900 border border-zinc-700 rounded-xl p-3"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          >
+            <option>Low</option>
+            <option>Medium</option>
+            <option>High</option>
+          </select>
+
+          <button
+            onClick={addTask}
+            className="bg-yellow-400 text-black font-bold rounded-xl p-3"
+          >
+            Add Task
+          </button>
         </div>
-      )}
+      </section>
 
-      {!loading && !error && tasks.length === 0 && (
-        <p className="text-zinc-400">No tasks found.</p>
-      )}
-
-      <div className="space-y-4">
+      <section className="space-y-4">
         {tasks.map((task) => (
           <div key={task.id} className="border border-zinc-700 p-4 rounded-xl">
-            <h2 className="text-xl font-bold">{task.title || "Untitled task"}</h2>
-            <p className="text-zinc-400">{task.task_type || task.status}</p>
+            <h2 className="text-xl font-bold">{task.title}</h2>
+            <p className="text-zinc-400">{task.task_type}</p>
             <p className="text-yellow-400">{task.priority}</p>
           </div>
         ))}
-      </div>
+      </section>
     </main>
   );
 }
