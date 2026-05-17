@@ -13,20 +13,26 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [voiceText, setVoiceText] = useState("");
   const [activeTab, setActiveTab] = useState("home");
+  const [listening, setListening] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState("");
 
   useEffect(() => {
     fetchTasks();
   }, []);
 
   async function fetchTasks() {
-    const { data } = await supabase.from("tasks").select("*");
+    const { data } = await supabase
+      .from("tasks")
+      .select("*")
+      .order("id", { ascending: false });
+
     setTasks(data || []);
   }
 
   async function addTask(customTitle = title, type = "Follow Up") {
     if (!customTitle.trim()) return;
 
-    await supabase.from("tasks").insert([
+    const { error } = await supabase.from("tasks").insert([
       {
         title: customTitle,
         task_type: type,
@@ -34,30 +40,106 @@ export default function Home() {
       },
     ]);
 
+    if (error) {
+      alert("Δεν μπόρεσε να αποθηκευτεί το task: " + error.message);
+      return;
+    }
+
     setTitle("");
     setVoiceText("");
+    setVoiceMessage("Η εκκρεμότητα αποθηκεύτηκε.");
     fetchTasks();
+  }
+
+  function detectTaskType(text) {
+    const lower = text.toLowerCase();
+
+    if (
+      lower.includes("πάρε") ||
+      lower.includes("τηλέφωνο") ||
+      lower.includes("τηλεφώνησε") ||
+      lower.includes("call")
+    ) {
+      return "Phone Call";
+    }
+
+    if (
+      lower.includes("στείλε") ||
+      lower.includes("email") ||
+      lower.includes("mail") ||
+      lower.includes("μήνυμα")
+    ) {
+      return "Email";
+    }
+
+    if (
+      lower.includes("ραντεβού") ||
+      lower.includes("συνάντηση") ||
+      lower.includes("meeting")
+    ) {
+      return "Meeting";
+    }
+
+    if (
+      lower.includes("προσφορά") ||
+      lower.includes("offer") ||
+      lower.includes("quotation")
+    ) {
+      return "Offer";
+    }
+
+    return "Task";
   }
 
   function processVoiceCommand() {
     if (!voiceText.trim()) return;
 
-    let type = "Task";
-    const lower = voiceText.toLowerCase();
-
-    if (lower.includes("πάρε") || lower.includes("τηλέφωνο") || lower.includes("call")) {
-      type = "Phone Call";
-    }
-
-    if (lower.includes("στείλε") || lower.includes("email") || lower.includes("mail")) {
-      type = "Email";
-    }
-
-    if (lower.includes("ραντεβού") || lower.includes("meeting")) {
-      type = "Meeting";
-    }
-
+    const type = detectTaskType(voiceText);
     addTask(voiceText, type);
+  }
+
+  function startListening() {
+    setVoiceMessage("");
+
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceMessage(
+        "Το voice recognition δεν υποστηρίζεται σε αυτόν τον browser. Δοκίμασε Chrome."
+      );
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "el-GR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setListening(true);
+      setVoiceMessage("Ακούω...");
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setVoiceText(transcript);
+      setVoiceMessage("Η φωνή μετατράπηκε σε κείμενο.");
+    };
+
+    recognition.onerror = (event) => {
+      setVoiceMessage("Σφάλμα μικροφώνου: " + event.error);
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognition.start();
   }
 
   return (
@@ -66,11 +148,13 @@ export default function Home() {
         <header className="flex items-center justify-between px-6 py-6">
           <div>
             <p className="text-xs text-blue-600 font-bold tracking-widest uppercase">
-              IntelliFlow
+              IntelliFlow V43
             </p>
+
             <h1 className="text-3xl font-black mt-1">
               {activeTab === "home" ? "Καλημέρα, Alex" : "Voice Command"}
             </h1>
+
             <p className="text-zinc-500 mt-1">
               {activeTab === "home"
                 ? "Η σημερινή σου εικόνα, καθαρά και οργανωμένα."
@@ -90,9 +174,11 @@ export default function Home() {
                 <p className="text-blue-300 text-xs font-bold uppercase tracking-widest">
                   AI Suggestion
                 </p>
+
                 <h2 className="text-2xl font-black mt-4 leading-tight">
                   Βρήκα {tasks.length} ανοιχτές εκκρεμότητες.
                 </h2>
+
                 <p className="text-blue-100 mt-3 text-sm">
                   Μπορώ να οργανώσω τις σημερινές προτεραιότητες.
                 </p>
@@ -122,6 +208,7 @@ export default function Home() {
             <section className="px-6 mt-7">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-black text-xl">Your Focus</h2>
+
                 <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold">
                   {tasks.length} tasks
                 </span>
@@ -137,6 +224,7 @@ export default function Home() {
 
                     <div className="flex-1">
                       <h3 className="font-black text-lg">{task.title}</h3>
+
                       <p className="text-zinc-500 mt-1">
                         {task.task_type || "Task"}
                       </p>
@@ -145,6 +233,7 @@ export default function Home() {
                         <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
                           {task.priority || "Medium"}
                         </span>
+
                         <span className="bg-zinc-100 text-zinc-600 px-3 py-1 rounded-full text-xs font-bold">
                           Active
                         </span>
@@ -158,18 +247,29 @@ export default function Home() {
         )}
 
         {activeTab === "voice" && (
-          <section className="px-6 mt-10 text-center">
-            <div className="w-56 h-56 rounded-full bg-blue-600 mx-auto flex items-center justify-center shadow-2xl">
+          <section className="px-6 mt-8 text-center">
+            <button
+              onClick={startListening}
+              className={`w-56 h-56 rounded-full mx-auto flex items-center justify-center shadow-2xl transition ${
+                listening ? "bg-red-500 scale-105" : "bg-blue-600"
+              }`}
+            >
               <span className="text-white text-7xl">🎙</span>
-            </div>
+            </button>
 
             <h2 className="text-3xl font-black mt-10">
-              Υπαγόρευσε τη σημείωση ή την εκκρεμότητα
+              {listening ? "Σε ακούω..." : "Υπαγόρευσε την εκκρεμότητα"}
             </h2>
 
             <p className="text-zinc-500 mt-3">
-              Προς το παρόν γράφουμε την εντολή. Στο επόμενο βήμα θα βάλουμε πραγματικό speech-to-text.
+              Πάτα το μικρόφωνο, μίλησε, και μετά πάτα Done για να αποθηκευτεί.
             </p>
+
+            {voiceMessage && (
+              <div className="mt-5 bg-blue-50 text-blue-700 rounded-2xl p-4 font-bold">
+                {voiceMessage}
+              </div>
+            )}
 
             <div className="bg-white rounded-[1.5rem] p-4 shadow mt-8">
               <textarea
@@ -189,14 +289,18 @@ export default function Home() {
 
             <div className="mt-8 space-y-3">
               <button
-                onClick={() => setVoiceText("Θύμισέ μου να πάρω τηλέφωνο τον Fabio")}
+                onClick={() =>
+                  setVoiceText("Θύμισέ μου να πάρω τηλέφωνο τον Fabio")
+                }
                 className="bg-blue-100 text-blue-700 px-5 py-3 rounded-full font-bold"
               >
                 Θύμισέ μου το ραντεβού...
               </button>
 
               <button
-                onClick={() => setVoiceText("Πρόσθεσε στα tasks να στείλω προσφορά")}
+                onClick={() =>
+                  setVoiceText("Πρόσθεσε στα tasks να στείλω προσφορά")
+                }
                 className="bg-blue-100 text-blue-700 px-5 py-3 rounded-full font-bold"
               >
                 Πρόσθεσε στα tasks...
