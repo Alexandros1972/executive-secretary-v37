@@ -1,360 +1,170 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import SecretaryConversation from "../components/SecretaryConversation";
+import { useState } from 'react'
+import SecretaryConversation from '../components/SecretaryConversation.jsx'
 
 import {
   questions,
-  initialIntakeForm,
-} from "../lib/conversationEngine";
-
-import { createSpeechRecognition } from "../lib/speechRecognition";
-import { supabase } from "../lib/supabase";
+  processGuidedStep,
+  generateMorningBriefing,
+  generateFollowUpSuggestions,
+  generateWeeklyReview
+} from '../lib/conversationEngine'
 
 export default function Home() {
-  const [step, setStep] = useState(0);
-  const [formData, setFormData] = useState(initialIntakeForm);
-  const [currentAnswer, setCurrentAnswer] = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [mode, setMode] = useState("answer");
-  const [savedMessage, setSavedMessage] = useState("");
+  const [conversation, setConversation] = useState([])
+  const [currentStep, setCurrentStep] = useState(0)
+  const [notes, setNotes] = useState('')
+  const [clientName, setClientName] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const currentQuestion = questions[step];
+  const handleAnswer = async (answer) => {
+    setLoading(true)
 
-  function speak(text, afterSpeak) {
-    if (typeof window === "undefined") return;
+    const currentQuestion = questions[currentStep]
 
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = 0.9;
-    utterance.pitch = 1;
-
-    utterance.onend = () => {
-      if (afterSpeak) afterSpeak();
-    };
-
-    window.speechSynthesis.speak(utterance);
-  }
-
-  function listenForAnswer() {
-    const recognition = createSpeechRecognition();
-
-    if (!recognition) {
-      alert("Speech recognition not supported. Use Chrome.");
-      return;
-    }
-
-    setIsListening(true);
-    setMode("answer");
-
-    recognition.start();
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-
-      setCurrentAnswer(transcript);
-      setIsListening(false);
-      setIsConfirming(true);
-
-      speak(
-        `I understood: ${transcript}. Is this correct? Say OK, Repeat or Skip.`,
-        listenForConfirmation
-      );
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      speak("I could not hear you clearly. I will ask again.", () => {
-        speak(currentQuestion.question, listenForAnswer);
-      });
-    };
-  }
-
-  function listenForConfirmation() {
-    const recognition = createSpeechRecognition();
-
-    if (!recognition) {
-      alert("Speech recognition not supported. Use Chrome.");
-      return;
-    }
-
-    setIsListening(true);
-    setMode("confirmation");
-
-    recognition.start();
-
-    recognition.onresult = (event) => {
-      const command = event.results[0][0].transcript.toLowerCase();
-      setIsListening(false);
-
-      if (
-        command.includes("ok") ||
-        command.includes("yes") ||
-        command.includes("correct") ||
-        command.includes("next")
-      ) {
-        saveAnswerAndMoveNext();
-        return;
-      }
-
-      if (
-        command.includes("repeat") ||
-        command.includes("again") ||
-        command.includes("wrong")
-      ) {
-        setCurrentAnswer("");
-        setIsConfirming(false);
-        speak("No problem. Please say it again.", listenForAnswer);
-        return;
-      }
-
-      if (
-        command.includes("skip") ||
-        command.includes("blank") ||
-        command.includes("empty")
-      ) {
-        skipQuestion();
-        return;
-      }
-
-      speak(
-        "I did not understand. Please say OK, Repeat, or Skip.",
-        listenForConfirmation
-      );
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      speak(
-        "I did not hear your confirmation. Please say OK, Repeat, or Skip.",
-        listenForConfirmation
-      );
-    };
-  }
-
-  function saveAnswerAndMoveNext() {
-    const field = currentQuestion.field;
-
-    const updatedForm = {
-      ...formData,
-      [field]: currentAnswer,
-    };
-
-    setFormData(updatedForm);
-    setCurrentAnswer("");
-    setIsConfirming(false);
-
-    if (step < questions.length - 1) {
-      const nextStep = step + 1;
-      setStep(nextStep);
-      speak(questions[nextStep].question, listenForAnswer);
-    } else {
-      finishIntake(updatedForm);
-    }
-  }
-
-  function skipQuestion() {
-    setCurrentAnswer("");
-    setIsConfirming(false);
-
-    if (step < questions.length - 1) {
-      const nextStep = step + 1;
-      setStep(nextStep);
-      speak(questions[nextStep].question, listenForAnswer);
-    } else {
-      finishIntake(formData);
-    }
-  }
-
-  function buildTitle(data) {
-    return `${data.interaction_type || "Communication"}: ${
-      data.contact_name || "Unknown contact"
-    } ${data.company_name ? "/ " + data.company_name : ""}`;
-  }
-
-  function buildWhatsappMessage(data) {
-    return `Hello ${data.contact_name || ""}, following our discussion about ${
-      data.topic || "the matter we discussed"
-    }, I wanted to check if there is any update from your side.`;
-  }
-
-  function finishIntake(finalData) {
-    const summary = `
-      Intake completed.
-      Contact: ${finalData.contact_name || "not provided"}.
-      Position: ${finalData.contact_position || "not provided"}.
-      Company: ${finalData.company_name || "not provided"}.
-      Topic: ${finalData.topic || "not provided"}.
-      Follow up: ${finalData.follow_up_date || "not provided"}.
-    `;
-
-    speak(`${summary}. Say Save to store it, or Repeat to start again.`, () =>
-      listenForFinalCommand(finalData)
-    );
-  }
-
-  function listenForFinalCommand(finalData) {
-    const recognition = createSpeechRecognition();
-
-    if (!recognition) {
-      alert("Speech recognition not supported. Use Chrome.");
-      return;
-    }
-
-    setIsListening(true);
-    setMode("final");
-
-    recognition.start();
-
-    recognition.onresult = async (event) => {
-      const command = event.results[0][0].transcript.toLowerCase();
-      setIsListening(false);
-
-      if (
-        command.includes("save") ||
-        command.includes("ok") ||
-        command.includes("yes")
-      ) {
-        await saveToSupabase(finalData);
-        return;
-      }
-
-      if (
-        command.includes("repeat") ||
-        command.includes("restart") ||
-        command.includes("again")
-      ) {
-        restartIntake();
-        return;
-      }
-
-      speak("Please say Save or Repeat.", () =>
-        listenForFinalCommand(finalData)
-      );
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      speak("I did not hear you. Please say Save or Repeat.", () =>
-        listenForFinalCommand(finalData)
-      );
-    };
-  }
-
-  async function saveToSupabase(data) {
-    const title = buildTitle(data);
-
-    const { error } = await supabase.from("tasks").insert([
+    const updatedConversation = [
+      ...conversation,
       {
-        title,
-        task_type: data.interaction_type || "Follow Up",
-        interaction_type: data.interaction_type,
-        contact_name: data.contact_name,
-        contact_position: data.contact_position,
-        company_name: data.company_name,
-        phone: data.phone,
-        email: data.email,
-        topic: data.topic,
-        discussion_notes: data.discussion_notes,
-        agreed_actions: data.agreed_actions,
-        follow_up_date: data.follow_up_date || null,
-        priority: "Medium",
-        pipeline_stage: "Interested",
-        whatsapp_message_template: buildWhatsappMessage(data),
-        source: "voice_guided_intake",
-        status: "active",
-      },
-    ]);
+        question: currentQuestion,
+        answer
+      }
+    ]
 
-    if (error) {
-      speak("There was an error saving the intake.");
-      setSavedMessage("Error: " + error.message);
-      return;
+    setConversation(updatedConversation)
+
+    const result = processGuidedStep(
+      updatedConversation,
+      currentStep
+    )
+
+    if (result?.clientName) {
+      setClientName(result.clientName)
     }
 
-    setSavedMessage("Saved successfully.");
-    speak("Saved successfully. The follow up has been stored.");
+    if (result?.companyName) {
+      setCompanyName(result.companyName)
+    }
+
+    if (currentStep < questions.length - 1) {
+      setCurrentStep(currentStep + 1)
+    }
+
+    setLoading(false)
   }
 
-  function restartIntake() {
-    setStep(0);
-    setFormData(initialIntakeForm);
-    setCurrentAnswer("");
-    setIsConfirming(false);
-    setSavedMessage("");
-    speak(questions[0].question, listenForAnswer);
+  const resetConversation = () => {
+    setConversation([])
+    setCurrentStep(0)
+    setNotes('')
+    setClientName('')
+    setCompanyName('')
   }
 
-  function startTouchFreeIntake() {
-    setStarted(true);
-    setStep(0);
-    setFormData(initialIntakeForm);
-    setCurrentAnswer("");
-    setIsConfirming(false);
-    setSavedMessage("");
-
-    speak("Starting guided intake.", () => {
-      speak(questions[0].question, listenForAnswer);
-    });
-  }
+  const morningBriefing = generateMorningBriefing()
+  const followUps = generateFollowUpSuggestions()
+  const weeklyReview = generateWeeklyReview()
 
   return (
-    <main className="min-h-screen bg-[#f5f7fb]">
-      <div className="max-w-xl mx-auto py-10">
-        <h1 className="text-5xl font-black text-center">
-          IntelliFlow
-        </h1>
+    <main className="min-h-screen bg-black text-white p-4">
+      <div className="max-w-5xl mx-auto">
 
-        <p className="text-center text-zinc-500 mt-3">
-          V49 Touch-Free Secretary + Supabase Save
-        </p>
+        <div className="mb-6">
+          <h1 className="text-4xl font-bold">
+            Executive Secretary AI
+          </h1>
 
-        {!started && (
-          <div className="px-6 mt-10">
+          <p className="text-gray-400 mt-2">
+            Voice-first operational assistant
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          <div className="lg:col-span-2">
+            <SecretaryConversation
+              questions={questions}
+              currentStep={currentStep}
+              onAnswer={handleAnswer}
+              loading={loading}
+              conversation={conversation}
+            />
+          </div>
+
+          <div className="space-y-4">
+
+            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
+              <h2 className="text-xl font-semibold mb-3">
+                Active Client
+              </h2>
+
+              <div className="space-y-2 text-sm">
+                <p>
+                  <span className="text-gray-400">Client:</span>{' '}
+                  {clientName || '—'}
+                </p>
+
+                <p>
+                  <span className="text-gray-400">Company:</span>{' '}
+                  {companyName || '—'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
+              <h2 className="text-xl font-semibold mb-3">
+                Morning Briefing
+              </h2>
+
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {morningBriefing}
+              </p>
+            </div>
+
+            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
+              <h2 className="text-xl font-semibold mb-3">
+                Follow-Ups
+              </h2>
+
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {followUps}
+              </p>
+            </div>
+
+            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
+              <h2 className="text-xl font-semibold mb-3">
+                Weekly Review
+              </h2>
+
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                {weeklyReview}
+              </p>
+            </div>
+
+            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
+              <h2 className="text-xl font-semibold mb-3">
+                Notes
+              </h2>
+
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Write notes manually..."
+                className="w-full h-32 bg-black border border-zinc-700 rounded-xl p-3 text-sm outline-none"
+              />
+            </div>
+
             <button
-              onClick={startTouchFreeIntake}
-              className="w-full bg-blue-600 text-white rounded-3xl p-6 text-2xl font-black shadow-xl"
+              onClick={resetConversation}
+              className="w-full bg-red-600 hover:bg-red-700 transition rounded-2xl p-3 font-semibold"
             >
-              Start Touch-Free Intake
+              Reset Session
             </button>
 
-            <p className="text-center text-zinc-500 mt-4">
-              Press once. Then answer by voice.
-            </p>
           </div>
-        )}
-
-        {started && (
-          <>
-            <SecretaryConversation
-              currentQuestion={
-                mode === "confirmation"
-                  ? "Confirm your answer"
-                  : mode === "final"
-                  ? "Final confirmation"
-                  : currentQuestion.question
-              }
-              currentAnswer={currentAnswer}
-              isListening={isListening}
-              isConfirming={isConfirming}
-              onStartListening={listenForAnswer}
-              onOk={saveAnswerAndMoveNext}
-              onRepeat={() => speak("Please say it again.", listenForAnswer)}
-              onSkip={skipQuestion}
-            />
-
-            {savedMessage && (
-              <div className="mx-6 mt-6 bg-green-100 text-green-700 rounded-2xl p-5 font-black text-center">
-                {savedMessage}
-              </div>
-            )}
-          </>
-        )}
+        </div>
       </div>
     </main>
-  );
+  )
 }
