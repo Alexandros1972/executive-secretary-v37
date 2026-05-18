@@ -29,9 +29,19 @@ export default function Home() {
   const [items, setItems] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [message, setMessage] = useState('')
+  const [voices, setVoices] = useState([])
 
   useEffect(() => {
     loadItems()
+
+    if (typeof window !== 'undefined') {
+      function loadVoices() {
+        setVoices(window.speechSynthesis.getVoices())
+      }
+
+      loadVoices()
+      window.speechSynthesis.onvoiceschanged = loadVoices
+    }
   }, [])
 
   async function loadItems() {
@@ -41,6 +51,49 @@ export default function Home() {
       .order('created_at', { ascending: false })
 
     setItems(data || [])
+  }
+
+  function getWarmFemaleVoice() {
+    const preferredNames = [
+      'Microsoft Jenny',
+      'Microsoft Aria',
+      'Google US English',
+      'Google UK English Female',
+      'Samantha',
+      'Karen',
+      'Moira',
+      'Tessa'
+    ]
+
+    return (
+      voices.find(v =>
+        preferredNames.some(name =>
+          v.name.toLowerCase().includes(name.toLowerCase())
+        )
+      ) ||
+      voices.find(v => v.lang?.startsWith('en')) ||
+      null
+    )
+  }
+
+  function speakWarm(text) {
+    if (typeof window === 'undefined') return
+
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    const voice = getWarmFemaleVoice()
+
+    if (voice) {
+      utterance.voice = voice
+    }
+
+    utterance.lang = 'en-US'
+    utterance.rate = 0.82
+    utterance.pitch = 1.08
+    utterance.volume = 1
+
+    window.speechSynthesis.speak(utterance)
   }
 
   function updateField(field, value) {
@@ -93,29 +146,56 @@ export default function Home() {
 
     setMessage('Saved successfully.')
     setForm(emptyForm)
+
     await loadItems()
+
     setMode('home')
+
+    speakWarm(
+      'Your intake has been saved successfully.'
+    )
   }
 
   function markDone(id) {
-    supabase.from('tasks').update({ status: 'completed' }).eq('id', id).then(loadItems)
+    supabase
+      .from('tasks')
+      .update({ status: 'completed' })
+      .eq('id', id)
+      .then(loadItems)
   }
 
   function reopen(id) {
-    supabase.from('tasks').update({ status: 'active' }).eq('id', id).then(loadItems)
+    supabase
+      .from('tasks')
+      .update({ status: 'active' })
+      .eq('id', id)
+      .then(loadItems)
   }
 
   function openWhatsapp(item) {
     const phone = (item.whatsapp_number || item.phone || '').replace(/\D/g, '')
-    const text = item.whatsapp_message_template || buildWhatsappMessage(item)
+
+    const text =
+      item.whatsapp_message_template ||
+      buildWhatsappMessage(item)
+
     const url = phone
       ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`
+
     window.open(url, '_blank')
   }
 
   function openCalendar(item) {
-    const title = encodeURIComponent(`Follow-up: ${item.contact_name || item.company_name || item.topic || 'Client'}`)
+    const title = encodeURIComponent(
+      `Follow-up: ${
+        item.contact_name ||
+        item.company_name ||
+        item.topic ||
+        'Client'
+      }`
+    )
+
     const details = encodeURIComponent(
       `Company: ${item.company_name || ''}
 Contact: ${item.contact_name || ''}
@@ -129,12 +209,25 @@ Promised by us: ${item.promised_by_us || ''}
 Pending from them: ${item.pending_from_them || ''}`
     )
 
-    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}`, '_blank')
+    window.open(
+      `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}`,
+      '_blank'
+    )
   }
 
-  const active = items.filter(i => i.status !== 'completed')
-  const completed = items.filter(i => i.status === 'completed')
-  const overdue = active.filter(i => i.follow_up_date && new Date(i.follow_up_date) < new Date())
+  const active = items.filter(
+    i => i.status !== 'completed'
+  )
+
+  const completed = items.filter(
+    i => i.status === 'completed'
+  )
+
+  const overdue = active.filter(
+    i =>
+      i.follow_up_date &&
+      new Date(i.follow_up_date) < new Date()
+  )
 
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-[#07111f] pb-28">
@@ -205,6 +298,7 @@ Pending from them: ${item.pending_from_them || ''}`
         {mode === 'voice' && (
           <section className="px-6">
             <div className="bg-white rounded-[2rem] p-6 shadow-xl text-center">
+
               <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
                 Voice Intake
               </p>
@@ -214,15 +308,20 @@ Pending from them: ${item.pending_from_them || ''}`
               </h2>
 
               <p className="text-zinc-500 mt-3">
-                Press once, then answer by voice. The secretary will guide you through the intake.
+                Press once and speak naturally.
               </p>
 
               <button
-                onClick={() => alert('Voice intake will be connected in the next step.')}
+                onClick={() =>
+                  speakWarm(
+                    'Hello. I am ready to help you record your meeting notes. Let us start slowly. What type of communication was it?'
+                  )
+                }
                 className="mt-8 w-40 h-40 rounded-full bg-blue-600 text-white text-5xl shadow-2xl"
               >
                 🎙
               </button>
+
             </div>
           </section>
         )}
@@ -230,8 +329,18 @@ Pending from them: ${item.pending_from_them || ''}`
         {mode === 'manual' && (
           <section className="px-6">
             <div className="bg-white rounded-[1.5rem] p-5 shadow space-y-4">
+
               <Field label="Type">
-                <select className="input" value={form.interaction_type} onChange={e => updateField('interaction_type', e.target.value)}>
+                <select
+                  className="input"
+                  value={form.interaction_type}
+                  onChange={e =>
+                    updateField(
+                      'interaction_type',
+                      e.target.value
+                    )
+                  }
+                >
                   <option>Phone Call</option>
                   <option>Meeting</option>
                   <option>WhatsApp</option>
@@ -242,24 +351,147 @@ Pending from them: ${item.pending_from_them || ''}`
                 </select>
               </Field>
 
-              <Input label="Contact Name" value={form.contact_name} onChange={v => updateField('contact_name', v)} />
-              <Input label="Position" value={form.contact_position} onChange={v => updateField('contact_position', v)} />
-              <Input label="Company" value={form.company_name} onChange={v => updateField('company_name', v)} />
-              <Input label="Phone" value={form.phone} onChange={v => updateField('phone', v)} />
-              <Input label="Email" value={form.email} onChange={v => updateField('email', v)} />
-              <Input label="WhatsApp" value={form.whatsapp_number} onChange={v => updateField('whatsapp_number', v)} />
-              <Input label="Topic" value={form.topic} onChange={v => updateField('topic', v)} />
+              <Input
+                label="Contact Name"
+                value={form.contact_name}
+                onChange={v =>
+                  updateField('contact_name', v)
+                }
+              />
 
-              <Textarea label="What was discussed?" value={form.discussion_notes} onChange={v => updateField('discussion_notes', v)} />
-              <Textarea label="What was agreed?" value={form.agreed_actions} onChange={v => updateField('agreed_actions', v)} />
-              <Textarea label="What did we promise?" value={form.promised_by_us} onChange={v => updateField('promised_by_us', v)} />
-              <Textarea label="What is pending from them?" value={form.pending_from_them} onChange={v => updateField('pending_from_them', v)} />
+              <Input
+                label="Position"
+                value={form.contact_position}
+                onChange={v =>
+                  updateField(
+                    'contact_position',
+                    v
+                  )
+                }
+              />
 
-              <Input label="Follow-up Date" type="date" value={form.follow_up_date} onChange={v => updateField('follow_up_date', v)} />
-              <Input label="Follow-up Time" type="time" value={form.follow_up_time} onChange={v => updateField('follow_up_time', v)} />
+              <Input
+                label="Company"
+                value={form.company_name}
+                onChange={v =>
+                  updateField('company_name', v)
+                }
+              />
+
+              <Input
+                label="Phone"
+                value={form.phone}
+                onChange={v =>
+                  updateField('phone', v)
+                }
+              />
+
+              <Input
+                label="Email"
+                value={form.email}
+                onChange={v =>
+                  updateField('email', v)
+                }
+              />
+
+              <Input
+                label="WhatsApp"
+                value={form.whatsapp_number}
+                onChange={v =>
+                  updateField(
+                    'whatsapp_number',
+                    v
+                  )
+                }
+              />
+
+              <Input
+                label="Topic"
+                value={form.topic}
+                onChange={v =>
+                  updateField('topic', v)
+                }
+              />
+
+              <Textarea
+                label="What was discussed?"
+                value={form.discussion_notes}
+                onChange={v =>
+                  updateField(
+                    'discussion_notes',
+                    v
+                  )
+                }
+              />
+
+              <Textarea
+                label="What was agreed?"
+                value={form.agreed_actions}
+                onChange={v =>
+                  updateField(
+                    'agreed_actions',
+                    v
+                  )
+                }
+              />
+
+              <Textarea
+                label="What did we promise?"
+                value={form.promised_by_us}
+                onChange={v =>
+                  updateField(
+                    'promised_by_us',
+                    v
+                  )
+                }
+              />
+
+              <Textarea
+                label="What is pending from them?"
+                value={form.pending_from_them}
+                onChange={v =>
+                  updateField(
+                    'pending_from_them',
+                    v
+                  )
+                }
+              />
+
+              <Input
+                label="Follow-up Date"
+                type="date"
+                value={form.follow_up_date}
+                onChange={v =>
+                  updateField(
+                    'follow_up_date',
+                    v
+                  )
+                }
+              />
+
+              <Input
+                label="Follow-up Time"
+                type="time"
+                value={form.follow_up_time}
+                onChange={v =>
+                  updateField(
+                    'follow_up_time',
+                    v
+                  )
+                }
+              />
 
               <Field label="Priority">
-                <select className="input" value={form.priority} onChange={e => updateField('priority', e.target.value)}>
+                <select
+                  className="input"
+                  value={form.priority}
+                  onChange={e =>
+                    updateField(
+                      'priority',
+                      e.target.value
+                    )
+                  }
+                >
                   <option>Low</option>
                   <option>Medium</option>
                   <option>High</option>
@@ -267,38 +499,19 @@ Pending from them: ${item.pending_from_them || ''}`
                 </select>
               </Field>
 
-              <Field label="Pipeline Stage">
-                <select className="input" value={form.pipeline_stage} onChange={e => updateField('pipeline_stage', e.target.value)}>
-                  <option>Lead</option>
-                  <option>Interested</option>
-                  <option>Offer Sent</option>
-                  <option>Waiting Reply</option>
-                  <option>Demo Needed</option>
-                  <option>Negotiation</option>
-                  <option>Won</option>
-                  <option>Lost</option>
-                </select>
-              </Field>
-
-              <label className="flex gap-3 items-center font-bold">
-                <input type="checkbox" checked={form.calendar_event_required} onChange={e => updateField('calendar_event_required', e.target.checked)} />
-                Add to Google Calendar
-              </label>
-
-              <label className="flex gap-3 items-center font-bold">
-                <input type="checkbox" checked={form.whatsapp_followup_required} onChange={e => updateField('whatsapp_followup_required', e.target.checked)} />
-                Prepare WhatsApp follow-up
-              </label>
-
               {message && (
                 <div className="bg-blue-50 text-blue-700 rounded-2xl p-4 font-black">
                   {message}
                 </div>
               )}
 
-              <button onClick={saveRecord} className="w-full bg-blue-600 text-white rounded-2xl p-4 font-black">
+              <button
+                onClick={saveRecord}
+                className="w-full bg-blue-600 text-white rounded-2xl p-4 font-black"
+              >
                 Save Intake
               </button>
+
             </div>
           </section>
         )}
@@ -332,23 +545,58 @@ Pending from them: ${item.pending_from_them || ''}`
 
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-200">
           <div className="max-w-md mx-auto grid grid-cols-4 text-center py-3">
-            <button onClick={() => setMode('home')} className={mode === 'home' ? 'text-blue-600 font-black' : ''}>
-              ⌂<br />Home
+
+            <button
+              onClick={() => setMode('home')}
+              className={
+                mode === 'home'
+                  ? 'text-blue-600 font-black'
+                  : ''
+              }
+            >
+              ⌂<br />
+              Home
             </button>
 
-            <button onClick={() => setMode('voice')} className={mode === 'voice' ? 'text-blue-600 font-black' : ''}>
-              🎙<br />Voice
+            <button
+              onClick={() => setMode('voice')}
+              className={
+                mode === 'voice'
+                  ? 'text-blue-600 font-black'
+                  : ''
+              }
+            >
+              🎙<br />
+              Voice
             </button>
 
-            <button onClick={() => setMode('manual')} className={mode === 'manual' ? 'text-blue-600 font-black' : ''}>
-              +<br />Intake
+            <button
+              onClick={() => setMode('manual')}
+              className={
+                mode === 'manual'
+                  ? 'text-blue-600 font-black'
+                  : ''
+              }
+            >
+              +<br />
+              Intake
             </button>
 
-            <button onClick={() => setMode('followups')} className={mode === 'followups' ? 'text-blue-600 font-black' : ''}>
-              ✅<br />Follow-ups
+            <button
+              onClick={() => setMode('followups')}
+              className={
+                mode === 'followups'
+                  ? 'text-blue-600 font-black'
+                  : ''
+              }
+            >
+              ✅<br />
+              Follow-ups
             </button>
+
           </div>
         </nav>
+
       </div>
     </main>
   )
@@ -357,87 +605,159 @@ Pending from them: ${item.pending_from_them || ''}`
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block font-black text-zinc-700 mb-2">{label}</label>
+      <label className="block font-black text-zinc-700 mb-2">
+        {label}
+      </label>
+
       {children}
     </div>
   )
 }
 
-function Input({ label, value, onChange, type = 'text' }) {
+function Input({
+  label,
+  value,
+  onChange,
+  type = 'text'
+}) {
   return (
     <Field label={label}>
-      <input className="input" type={type} value={value} onChange={e => onChange(e.target.value)} />
+      <input
+        className="input"
+        type={type}
+        value={value}
+        onChange={e =>
+          onChange(e.target.value)
+        }
+      />
     </Field>
   )
 }
 
-function Textarea({ label, value, onChange }) {
+function Textarea({
+  label,
+  value,
+  onChange
+}) {
   return (
     <Field label={label}>
-      <textarea className="input min-h-28" value={value} onChange={e => onChange(e.target.value)} />
+      <textarea
+        className="input min-h-28"
+        value={value}
+        onChange={e =>
+          onChange(e.target.value)
+        }
+      />
     </Field>
   )
 }
 
-function FollowUpList({ title, items, markDone, reopen, openWhatsapp, openCalendar }) {
+function FollowUpList({
+  title,
+  items,
+  markDone,
+  reopen,
+  openWhatsapp,
+  openCalendar
+}) {
   return (
     <section className="px-6 mt-7">
+
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-black text-xl">{title}</h2>
+        <h2 className="font-black text-xl">
+          {title}
+        </h2>
+
         <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-black">
           {items.length}
         </span>
       </div>
 
       <div className="space-y-4">
+
         {items.map(item => {
-          const done = item.status === 'completed'
+          const done =
+            item.status === 'completed'
 
           return (
-            <div key={item.id} className="bg-white rounded-[1.5rem] p-5 shadow">
+            <div
+              key={item.id}
+              className="bg-white rounded-[1.5rem] p-5 shadow"
+            >
+
               <p className="text-xs text-blue-600 font-black uppercase tracking-widest">
-                {item.interaction_type || item.task_type || 'Follow-up'}
+                {item.interaction_type ||
+                  item.task_type ||
+                  'Follow-up'}
               </p>
 
               <h3 className="font-black text-lg mt-1">
-                {item.contact_name || item.title}
+                {item.contact_name ||
+                  item.title}
               </h3>
 
               <p className="text-zinc-500">
-                {item.company_name || item.topic || ''}
+                {item.company_name ||
+                  item.topic ||
+                  ''}
               </p>
 
               {item.follow_up_date && (
                 <div className="mt-4 bg-[#f1f5fb] rounded-2xl p-3 font-black text-blue-700">
-                  Follow-up: {item.follow_up_date} {item.follow_up_time || ''}
+                  Follow-up:{' '}
+                  {item.follow_up_date}{' '}
+                  {item.follow_up_time || ''}
                 </div>
               )}
 
               {item.pending_from_them && (
                 <p className="mt-3 text-zinc-600">
-                  <strong>Pending:</strong> {item.pending_from_them}
+                  <strong>Pending:</strong>{' '}
+                  {item.pending_from_them}
                 </p>
               )}
 
               <div className="grid grid-cols-2 gap-3 mt-4">
-                <button onClick={() => openCalendar(item)} className="bg-[#071a33] text-white rounded-2xl p-3 font-black">
+
+                <button
+                  onClick={() =>
+                    openCalendar(item)
+                  }
+                  className="bg-[#071a33] text-white rounded-2xl p-3 font-black"
+                >
                   Calendar
                 </button>
 
-                <button onClick={() => openWhatsapp(item)} className="bg-green-100 text-green-700 rounded-2xl p-3 font-black">
+                <button
+                  onClick={() =>
+                    openWhatsapp(item)
+                  }
+                  className="bg-green-100 text-green-700 rounded-2xl p-3 font-black"
+                >
                   WhatsApp
                 </button>
+
               </div>
 
               <button
-                onClick={() => done ? reopen(item.id) : markDone(item.id)}
-                className={`w-full mt-3 rounded-2xl p-3 font-black ${done ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}
+                onClick={() =>
+                  done
+                    ? reopen(item.id)
+                    : markDone(item.id)
+                }
+                className={`w-full mt-3 rounded-2xl p-3 font-black ${
+                  done
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
               >
                 {done ? 'Reopen' : 'Done'}
               </button>
+
             </div>
           )
         })}
+
       </div>
     </section>
   )
