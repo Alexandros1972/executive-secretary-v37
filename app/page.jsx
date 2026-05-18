@@ -26,7 +26,8 @@ export default function Home() {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "el-GR";
+
+    utterance.lang = "en-US";
     utterance.rate = 0.9;
     utterance.pitch = 1;
 
@@ -43,11 +44,12 @@ export default function Home() {
     const recognition = createSpeechRecognition();
 
     if (!recognition) {
-      alert("Speech recognition not supported. Δοκίμασε Chrome.");
+      alert("Speech recognition not supported. Use Chrome.");
       return;
     }
 
     window.speechSynthesis.cancel();
+
     setIsListening(true);
 
     recognition.start();
@@ -56,15 +58,20 @@ export default function Home() {
       const transcript = event.results[0][0].transcript;
 
       setCurrentAnswer(transcript);
+
       setIsListening(false);
+
       setIsConfirming(true);
 
-      speak(`Κατάλαβα: ${transcript}. Είναι σωστό; Πες OK, Repeat ή Skip.`);
+      speak(
+        `I understood: ${transcript}. Is this correct? Say OK, Repeat or Skip.`
+      );
     };
 
     recognition.onerror = () => {
       setIsListening(false);
-      speak("Δεν σε άκουσα καθαρά. Πάτησε ξανά το μικρόφωνο.");
+
+      speak("I could not hear you clearly. Please try again.");
     };
 
     recognition.onend = () => {
@@ -81,32 +88,39 @@ export default function Home() {
     }));
 
     setCurrentAnswer("");
+
     setIsConfirming(false);
 
     if (step < questions.length - 1) {
       setStep(step + 1);
     } else {
-      speak("Η καταγραφή ολοκληρώθηκε.");
-      alert("Η καταγραφή ολοκληρώθηκε");
+      speak("The intake has been completed.");
+
+      alert("The intake has been completed.");
+
       console.log(formData);
     }
   };
 
   const handleRepeat = () => {
     setCurrentAnswer("");
+
     setIsConfirming(false);
-    speak("Πες το ξανά.");
+
+    speak("Please say it again.");
   };
 
   const handleSkip = () => {
     setCurrentAnswer("");
+
     setIsConfirming(false);
 
     if (step < questions.length - 1) {
       setStep(step + 1);
     } else {
-      speak("Η καταγραφή ολοκληρώθηκε.");
-      alert("Η καταγραφή ολοκληρώθηκε");
+      speak("The intake has been completed.");
+
+      alert("The intake has been completed.");
     }
   };
 
