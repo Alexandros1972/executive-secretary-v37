@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-
 import SecretaryConversation from "../components/SecretaryConversation";
 
 import {
@@ -10,6 +9,7 @@ import {
 } from "../lib/conversationEngine";
 
 import { createSpeechRecognition } from "../lib/speechRecognition";
+import { supabase } from "../lib/supabase";
 
 export default function Home() {
   const [step, setStep] = useState(0);
@@ -19,6 +19,7 @@ export default function Home() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [started, setStarted] = useState(false);
   const [mode, setMode] = useState("answer");
+  const [savedMessage, setSavedMessage] = useState("");
 
   const currentQuestion = questions[step];
 
@@ -71,10 +72,6 @@ export default function Home() {
         speak(currentQuestion.question, listenForAnswer);
       });
     };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
   }
 
   function listenForConfirmation() {
@@ -92,7 +89,6 @@ export default function Home() {
 
     recognition.onresult = (event) => {
       const command = event.results[0][0].transcript.toLowerCase();
-
       setIsListening(false);
 
       if (
@@ -112,7 +108,6 @@ export default function Home() {
       ) {
         setCurrentAnswer("");
         setIsConfirming(false);
-
         speak("No problem. Please say it again.", listenForAnswer);
         return;
       }
@@ -139,10 +134,6 @@ export default function Home() {
         listenForConfirmation
       );
     };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
   }
 
   function saveAnswerAndMoveNext() {
@@ -160,7 +151,6 @@ export default function Home() {
     if (step < questions.length - 1) {
       const nextStep = step + 1;
       setStep(nextStep);
-
       speak(questions[nextStep].question, listenForAnswer);
     } else {
       finishIntake(updatedForm);
@@ -174,26 +164,40 @@ export default function Home() {
     if (step < questions.length - 1) {
       const nextStep = step + 1;
       setStep(nextStep);
-
       speak(questions[nextStep].question, listenForAnswer);
     } else {
       finishIntake(formData);
     }
   }
 
+  function buildTitle(data) {
+    return `${data.interaction_type || "Communication"}: ${
+      data.contact_name || "Unknown contact"
+    } ${data.company_name ? "/ " + data.company_name : ""}`;
+  }
+
+  function buildWhatsappMessage(data) {
+    return `Hello ${data.contact_name || ""}, following our discussion about ${
+      data.topic || "the matter we discussed"
+    }, I wanted to check if there is any update from your side.`;
+  }
+
   function finishIntake(finalData) {
     const summary = `
       Intake completed.
       Contact: ${finalData.contact_name || "not provided"}.
+      Position: ${finalData.contact_position || "not provided"}.
       Company: ${finalData.company_name || "not provided"}.
       Topic: ${finalData.topic || "not provided"}.
       Follow up: ${finalData.follow_up_date || "not provided"}.
     `;
 
-    speak(`${summary}. Say Save to store it, or Repeat to start again.`, listenForFinalCommand);
+    speak(`${summary}. Say Save to store it, or Repeat to start again.`, () =>
+      listenForFinalCommand(finalData)
+    );
   }
 
-  function listenForFinalCommand() {
+  function listenForFinalCommand(finalData) {
     const recognition = createSpeechRecognition();
 
     if (!recognition) {
@@ -206,9 +210,8 @@ export default function Home() {
 
     recognition.start();
 
-    recognition.onresult = (event) => {
+    recognition.onresult = async (event) => {
       const command = event.results[0][0].transcript.toLowerCase();
-
       setIsListening(false);
 
       if (
@@ -216,8 +219,7 @@ export default function Home() {
         command.includes("ok") ||
         command.includes("yes")
       ) {
-        speak("Saved. The intake is complete.");
-        alert("Intake completed. Next step will save this to Supabase.");
+        await saveToSupabase(finalData);
         return;
       }
 
@@ -226,22 +228,65 @@ export default function Home() {
         command.includes("restart") ||
         command.includes("again")
       ) {
-        setStep(0);
-        setFormData(initialIntakeForm);
-        setCurrentAnswer("");
-        setIsConfirming(false);
-
-        speak(questions[0].question, listenForAnswer);
+        restartIntake();
         return;
       }
 
-      speak("Please say Save or Repeat.", listenForFinalCommand);
+      speak("Please say Save or Repeat.", () =>
+        listenForFinalCommand(finalData)
+      );
     };
 
     recognition.onerror = () => {
       setIsListening(false);
-      speak("I did not hear you. Please say Save or Repeat.", listenForFinalCommand);
+      speak("I did not hear you. Please say Save or Repeat.", () =>
+        listenForFinalCommand(finalData)
+      );
     };
+  }
+
+  async function saveToSupabase(data) {
+    const title = buildTitle(data);
+
+    const { error } = await supabase.from("tasks").insert([
+      {
+        title,
+        task_type: data.interaction_type || "Follow Up",
+        interaction_type: data.interaction_type,
+        contact_name: data.contact_name,
+        contact_position: data.contact_position,
+        company_name: data.company_name,
+        phone: data.phone,
+        email: data.email,
+        topic: data.topic,
+        discussion_notes: data.discussion_notes,
+        agreed_actions: data.agreed_actions,
+        follow_up_date: data.follow_up_date || null,
+        priority: "Medium",
+        pipeline_stage: "Interested",
+        whatsapp_message_template: buildWhatsappMessage(data),
+        source: "voice_guided_intake",
+        status: "active",
+      },
+    ]);
+
+    if (error) {
+      speak("There was an error saving the intake.");
+      setSavedMessage("Error: " + error.message);
+      return;
+    }
+
+    setSavedMessage("Saved successfully.");
+    speak("Saved successfully. The follow up has been stored.");
+  }
+
+  function restartIntake() {
+    setStep(0);
+    setFormData(initialIntakeForm);
+    setCurrentAnswer("");
+    setIsConfirming(false);
+    setSavedMessage("");
+    speak(questions[0].question, listenForAnswer);
   }
 
   function startTouchFreeIntake() {
@@ -250,6 +295,7 @@ export default function Home() {
     setFormData(initialIntakeForm);
     setCurrentAnswer("");
     setIsConfirming(false);
+    setSavedMessage("");
 
     speak("Starting guided intake.", () => {
       speak(questions[0].question, listenForAnswer);
@@ -264,7 +310,7 @@ export default function Home() {
         </h1>
 
         <p className="text-center text-zinc-500 mt-3">
-          V48 Touch-Free Secretary Mode
+          V49 Touch-Free Secretary + Supabase Save
         </p>
 
         {!started && (
@@ -283,22 +329,30 @@ export default function Home() {
         )}
 
         {started && (
-          <SecretaryConversation
-            currentQuestion={
-              mode === "confirmation"
-                ? "Confirm your answer"
-                : mode === "final"
-                ? "Final confirmation"
-                : currentQuestion.question
-            }
-            currentAnswer={currentAnswer}
-            isListening={isListening}
-            isConfirming={isConfirming}
-            onStartListening={listenForAnswer}
-            onOk={saveAnswerAndMoveNext}
-            onRepeat={() => speak("Please say it again.", listenForAnswer)}
-            onSkip={skipQuestion}
-          />
+          <>
+            <SecretaryConversation
+              currentQuestion={
+                mode === "confirmation"
+                  ? "Confirm your answer"
+                  : mode === "final"
+                  ? "Final confirmation"
+                  : currentQuestion.question
+              }
+              currentAnswer={currentAnswer}
+              isListening={isListening}
+              isConfirming={isConfirming}
+              onStartListening={listenForAnswer}
+              onOk={saveAnswerAndMoveNext}
+              onRepeat={() => speak("Please say it again.", listenForAnswer)}
+              onSkip={skipQuestion}
+            />
+
+            {savedMessage && (
+              <div className="mx-6 mt-6 bg-green-100 text-green-700 rounded-2xl p-5 font-black text-center">
+                {savedMessage}
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
