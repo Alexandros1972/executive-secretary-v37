@@ -58,11 +58,9 @@ export default function Home() {
   async function saveRecord() {
     setMessage('')
 
-    const title = buildTitle(form)
-
     const { error } = await supabase.from('tasks').insert([
       {
-        title,
+        title: buildTitle(form),
         task_type: form.interaction_type,
         interaction_type: form.interaction_type,
         contact_name: form.contact_name,
@@ -95,7 +93,7 @@ export default function Home() {
 
     setMessage('Saved successfully.')
     setForm(emptyForm)
-    loadItems()
+    await loadItems()
     setMode('home')
   }
 
@@ -146,11 +144,14 @@ Pending from them: ${item.pending_from_them || ''}`
           <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
             V50 Executive Secretary
           </p>
+
           <h1 className="text-3xl font-black mt-1">
             {mode === 'home' && 'Daily Command Center'}
+            {mode === 'voice' && 'Voice Intake'}
             {mode === 'manual' && 'Manual Intake'}
             {mode === 'followups' && 'Follow-ups'}
           </h1>
+
           <p className="text-zinc-500 mt-1">
             Personal secretary for calls, meetings, pending items and reminders.
           </p>
@@ -163,19 +164,30 @@ Pending from them: ${item.pending_from_them || ''}`
                 <p className="text-blue-300 text-xs font-black uppercase tracking-widest">
                   Morning Briefing
                 </p>
+
                 <h2 className="text-2xl font-black mt-4 leading-tight">
                   You have {active.length} active follow-ups.
                 </h2>
+
                 <p className="text-blue-100 mt-3">
                   {overdue.length} overdue. {completed.length} completed.
                 </p>
 
-                <button
-                  onClick={() => setMode('manual')}
-                  className="mt-5 w-full bg-blue-600 text-white rounded-2xl p-4 font-black"
-                >
-                  New Manual Intake
-                </button>
+                <div className="grid grid-cols-2 gap-3 mt-5">
+                  <button
+                    onClick={() => setMode('voice')}
+                    className="bg-blue-600 text-white rounded-2xl p-4 font-black"
+                  >
+                    Voice Intake
+                  </button>
+
+                  <button
+                    onClick={() => setMode('manual')}
+                    className="bg-white text-[#071a33] rounded-2xl p-4 font-black"
+                  >
+                    Manual Intake
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -188,6 +200,31 @@ Pending from them: ${item.pending_from_them || ''}`
               openCalendar={openCalendar}
             />
           </>
+        )}
+
+        {mode === 'voice' && (
+          <section className="px-6">
+            <div className="bg-white rounded-[2rem] p-6 shadow-xl text-center">
+              <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
+                Voice Intake
+              </p>
+
+              <h2 className="text-3xl font-black mt-4">
+                Touch-Free Secretary
+              </h2>
+
+              <p className="text-zinc-500 mt-3">
+                Press once, then answer by voice. The secretary will guide you through the intake.
+              </p>
+
+              <button
+                onClick={() => alert('Voice intake will be connected in the next step.')}
+                className="mt-8 w-40 h-40 rounded-full bg-blue-600 text-white text-5xl shadow-2xl"
+              >
+                🎙
+              </button>
+            </div>
+          </section>
         )}
 
         {mode === 'manual' && (
@@ -280,21 +317,33 @@ Pending from them: ${item.pending_from_them || ''}`
         <style jsx>{`
           .input {
             width: 100%;
-            background: #f1f5fb;
+            background: #ffffff;
+            color: #07111f;
+            border: 1px solid #d8e0ec;
             border-radius: 16px;
             padding: 14px;
             outline: none;
           }
+
+          .input::placeholder {
+            color: #8a94a6;
+          }
         `}</style>
 
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-200">
-          <div className="max-w-md mx-auto grid grid-cols-3 text-center py-3">
+          <div className="max-w-md mx-auto grid grid-cols-4 text-center py-3">
             <button onClick={() => setMode('home')} className={mode === 'home' ? 'text-blue-600 font-black' : ''}>
               ⌂<br />Home
             </button>
+
+            <button onClick={() => setMode('voice')} className={mode === 'voice' ? 'text-blue-600 font-black' : ''}>
+              🎙<br />Voice
+            </button>
+
             <button onClick={() => setMode('manual')} className={mode === 'manual' ? 'text-blue-600 font-black' : ''}>
               +<br />Intake
             </button>
+
             <button onClick={() => setMode('followups')} className={mode === 'followups' ? 'text-blue-600 font-black' : ''}>
               ✅<br />Follow-ups
             </button>
@@ -374,6 +423,7 @@ function FollowUpList({ title, items, markDone, reopen, openWhatsapp, openCalend
                 <button onClick={() => openCalendar(item)} className="bg-[#071a33] text-white rounded-2xl p-3 font-black">
                   Calendar
                 </button>
+
                 <button onClick={() => openWhatsapp(item)} className="bg-green-100 text-green-700 rounded-2xl p-3 font-black">
                   WhatsApp
                 </button>
