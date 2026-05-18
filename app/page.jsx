@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import SecretaryConversation from "./components/SecretaryConversation";
+import SecretaryConversation from "../components/SecretaryConversation";
 
 import {
   questions,
