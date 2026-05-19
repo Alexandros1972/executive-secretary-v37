@@ -25,10 +25,11 @@ const emptyForm = {
 };
 
 export default function Home() {
-  const [mode, setMode] = useState("manual");
+  const [mode, setMode] = useState("home");
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
   const [voices, setVoices] = useState([]);
 
   useEffect(() => {
@@ -98,7 +99,7 @@ export default function Home() {
   function buildTitle(data) {
     return `${data.interaction_type}: ${data.contact_name || "Unknown"}${
       data.company_name ? " / " + data.company_name : ""
-    }`;
+    }${data.topic ? " - " + data.topic : ""}`;
   }
 
   function buildWhatsappMessage(data) {
@@ -146,6 +147,7 @@ export default function Home() {
     setForm(emptyForm);
     await loadItems();
     speakWarm("Your intake has been saved successfully.");
+    setMode("home");
   }
 
   function markDone(id) {
@@ -156,93 +158,140 @@ export default function Home() {
       .then(loadItems);
   }
 
+  function reopen(id) {
+    supabase
+      .from("tasks")
+      .update({ status: "active" })
+      .eq("id", id)
+      .then(loadItems);
+  }
+
+  function openWhatsapp(item) {
+    const phone = (item.whatsapp_number || item.phone || "").replace(/\D/g, "");
+    const text =
+      item.whatsapp_message_template ||
+      buildWhatsappMessage(item);
+
+    const url = phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    window.open(url, "_blank");
+  }
+
+  function openCalendar(item) {
+    const title = encodeURIComponent(
+      `Follow-up: ${item.contact_name || item.company_name || item.topic || "Client"}`
+    );
+
+    const details = encodeURIComponent(
+      `Company: ${item.company_name || ""}
+Contact: ${item.contact_name || ""}
+Position: ${item.contact_position || ""}
+Phone: ${item.phone || ""}
+Email: ${item.email || ""}
+Topic: ${item.topic || ""}
+Discussion: ${item.discussion_notes || ""}
+Agreed: ${item.agreed_actions || ""}
+Promised by us: ${item.promised_by_us || ""}
+Pending from them: ${item.pending_from_them || ""}`
+    );
+
+    window.open(
+      `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}`,
+      "_blank"
+    );
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
   const active = items.filter((i) => i.status !== "completed");
   const completed = items.filter((i) => i.status === "completed");
+
+  const todayItems = active.filter((i) => i.follow_up_date === today);
+
   const overdue = active.filter(
-    (i) => i.follow_up_date && new Date(i.follow_up_date) < new Date()
+    (i) => i.follow_up_date && i.follow_up_date < today
   );
+
+  const upcoming = active.filter(
+    (i) => i.follow_up_date && i.follow_up_date > today
+  );
+
+  const searchResults = items.filter((item) => {
+    const text = `
+      ${item.contact_name || ""}
+      ${item.company_name || ""}
+      ${item.topic || ""}
+      ${item.discussion_notes || ""}
+      ${item.agreed_actions || ""}
+      ${item.pending_from_them || ""}
+      ${item.promised_by_us || ""}
+      ${item.phone || ""}
+      ${item.email || ""}
+    `.toLowerCase();
+
+    return text.includes(query.toLowerCase());
+  });
 
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-slate-900 pb-28">
       <div className="max-w-md mx-auto min-h-screen px-6 py-6">
         <p className="text-xs text-blue-600 font-black tracking-widest uppercase">
-          V50 Executive Secretary
+          Executive Secretary
         </p>
 
         <h1 className="text-4xl font-black mt-2">
           {mode === "home" && "Daily Command Center"}
-          {mode === "voice" && "Voice Intake"}
           {mode === "manual" && "Manual Intake"}
+          {mode === "voice" && "Voice Intake"}
+          {mode === "calendar" && "Calendar"}
+          {mode === "search" && "Client Memory"}
           {mode === "followups" && "Follow-ups"}
         </h1>
 
         <p className="text-slate-500 mt-3">
-          Personal secretary for calls, meetings, pending items and reminders.
+          Calls, meetings, reminders, pending items, follow-ups and customer memory.
         </p>
 
         {mode === "home" && (
-          <section className="mt-8">
+          <section className="mt-8 space-y-5">
             <div className="rounded-[2rem] bg-[#071a33] text-white p-6 shadow-xl">
               <p className="text-blue-300 text-xs font-black uppercase tracking-widest">
                 Morning Briefing
               </p>
 
               <h2 className="text-2xl font-black mt-4">
-                You have {active.length} active follow-ups.
+                Today you have {todayItems.length} follow-ups.
               </h2>
 
               <p className="text-blue-100 mt-3">
-                {overdue.length} overdue. {completed.length} completed.
+                {overdue.length} overdue. {upcoming.length} upcoming. {completed.length} completed.
               </p>
 
               <div className="grid grid-cols-2 gap-3 mt-5">
-                <button
-                  onClick={() => setMode("voice")}
-                  className="bg-blue-600 text-white rounded-2xl p-4 font-black"
-                >
+                <button onClick={() => setMode("voice")} className="bg-blue-600 text-white rounded-2xl p-4 font-black">
                   Voice
                 </button>
 
-                <button
-                  onClick={() => setMode("manual")}
-                  className="bg-white text-[#071a33] rounded-2xl p-4 font-black"
-                >
+                <button onClick={() => setMode("manual")} className="bg-white text-[#071a33] rounded-2xl p-4 font-black">
                   Manual
                 </button>
               </div>
             </div>
-          </section>
-        )}
 
-        {mode === "voice" && (
-          <section className="mt-8 bg-white rounded-[2rem] p-6 shadow-xl text-center">
-            <h2 className="text-3xl font-black">Touch-Free Secretary</h2>
+            <SectionTitle title="Overdue" count={overdue.length} />
+            <Cards items={overdue.slice(0, 3)} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
 
-            <p className="text-slate-500 mt-3">
-              Press once and speak naturally.
-            </p>
-
-            <button
-              onClick={() =>
-                speakWarm(
-                  "Hello. I am ready to help you record your meeting notes. What type of communication was it?"
-                )
-              }
-              className="mt-8 w-40 h-40 rounded-full bg-blue-600 text-white text-5xl shadow-2xl"
-            >
-              🎙
-            </button>
+            <SectionTitle title="Today" count={todayItems.length} />
+            <Cards items={todayItems.slice(0, 5)} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
           </section>
         )}
 
         {mode === "manual" && (
           <section className="mt-8 bg-white rounded-[2rem] p-6 shadow-xl space-y-5">
             <Field label="Type">
-              <select
-                className={inputClass}
-                value={form.interaction_type}
-                onChange={(e) => updateField("interaction_type", e.target.value)}
-              >
+              <select className={inputClass} value={form.interaction_type} onChange={(e) => updateField("interaction_type", e.target.value)}>
                 <option>Phone Call</option>
                 <option>Meeting</option>
                 <option>WhatsApp</option>
@@ -270,11 +319,7 @@ export default function Home() {
             <Input label="Follow-up Time" type="time" value={form.follow_up_time} onChange={(v) => updateField("follow_up_time", v)} />
 
             <Field label="Priority">
-              <select
-                className={inputClass}
-                value={form.priority}
-                onChange={(e) => updateField("priority", e.target.value)}
-              >
+              <select className={inputClass} value={form.priority} onChange={(e) => updateField("priority", e.target.value)}>
                 <option>Low</option>
                 <option>Medium</option>
                 <option>High</option>
@@ -288,69 +333,187 @@ export default function Home() {
               </div>
             )}
 
-            <button
-              onClick={saveRecord}
-              className="w-full bg-blue-600 text-white rounded-2xl p-4 font-black"
-            >
+            <button onClick={saveRecord} className="w-full bg-blue-600 text-white rounded-2xl p-4 font-black">
               Save Intake
             </button>
           </section>
         )}
 
+        {mode === "voice" && (
+          <section className="mt-8 bg-white rounded-[2rem] p-6 shadow-xl text-center">
+            <h2 className="text-3xl font-black">Touch-Free Secretary</h2>
+
+            <p className="text-slate-500 mt-3">
+              Press once. Warm voice is active. Full voice capture is the next connection step.
+            </p>
+
+            <button
+              onClick={() =>
+                speakWarm(
+                  "Hello. I am ready to help you record your meeting notes. Let us start slowly. What type of communication was it?"
+                )
+              }
+              className="mt-8 w-40 h-40 rounded-full bg-blue-600 text-white text-5xl shadow-2xl"
+            >
+              🎙
+            </button>
+          </section>
+        )}
+
+        {mode === "calendar" && (
+          <section className="mt-8 space-y-5">
+            <SectionTitle title="Overdue" count={overdue.length} />
+            <Cards items={overdue} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
+
+            <SectionTitle title="Today" count={todayItems.length} />
+            <Cards items={todayItems} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
+
+            <SectionTitle title="Upcoming" count={upcoming.length} />
+            <Cards items={upcoming} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
+          </section>
+        )}
+
+        {mode === "search" && (
+          <section className="mt-8 space-y-5">
+            <input
+              className={inputClass}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search client, company, topic, pending..."
+            />
+
+            {query && (
+              <Cards
+                items={searchResults}
+                markDone={markDone}
+                reopen={reopen}
+                openWhatsapp={openWhatsapp}
+                openCalendar={openCalendar}
+              />
+            )}
+          </section>
+        )}
+
         {mode === "followups" && (
-          <section className="mt-8 space-y-4">
-            {items.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl p-5 shadow">
-                <p className="text-xs text-blue-600 font-black uppercase">
-                  {item.interaction_type || "Follow-up"}
-                </p>
+          <section className="mt-8 space-y-5">
+            <SectionTitle title="Active Follow-ups" count={active.length} />
+            <Cards items={active} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
 
-                <h3 className="font-black text-lg mt-1">
-                  {item.contact_name || item.title}
-                </h3>
-
-                <p className="text-slate-500">
-                  {item.company_name || item.topic || ""}
-                </p>
-
-                {item.follow_up_date && (
-                  <p className="mt-3 bg-blue-50 text-blue-700 rounded-xl p-3 font-black">
-                    Follow-up: {item.follow_up_date} {item.follow_up_time || ""}
-                  </p>
-                )}
-
-                <button
-                  onClick={() => markDone(item.id)}
-                  className="w-full mt-4 bg-blue-100 text-blue-700 rounded-2xl p-3 font-black"
-                >
-                  Done
-                </button>
-              </div>
-            ))}
+            <SectionTitle title="Completed" count={completed.length} />
+            <Cards items={completed} markDone={markDone} reopen={reopen} openWhatsapp={openWhatsapp} openCalendar={openCalendar} />
           </section>
         )}
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200">
-        <div className="max-w-md mx-auto grid grid-cols-4 text-center py-3">
-          <button onClick={() => setMode("home")} className={mode === "home" ? "text-blue-600 font-black" : ""}>
-            ⌂<br />Home
-          </button>
-
-          <button onClick={() => setMode("voice")} className={mode === "voice" ? "text-blue-600 font-black" : ""}>
-            🎙<br />Voice
-          </button>
-
-          <button onClick={() => setMode("manual")} className={mode === "manual" ? "text-blue-600 font-black" : ""}>
-            +<br />Intake
-          </button>
-
-          <button onClick={() => setMode("followups")} className={mode === "followups" ? "text-blue-600 font-black" : ""}>
-            ✅<br />Follow-ups
-          </button>
+        <div className="max-w-md mx-auto grid grid-cols-6 text-center py-3 text-xs">
+          <Nav label="Home" icon="⌂" active={mode === "home"} onClick={() => setMode("home")} />
+          <Nav label="Voice" icon="🎙" active={mode === "voice"} onClick={() => setMode("voice")} />
+          <Nav label="Intake" icon="+" active={mode === "manual"} onClick={() => setMode("manual")} />
+          <Nav label="Calendar" icon="📅" active={mode === "calendar"} onClick={() => setMode("calendar")} />
+          <Nav label="Search" icon="🔎" active={mode === "search"} onClick={() => setMode("search")} />
+          <Nav label="Tasks" icon="✅" active={mode === "followups"} onClick={() => setMode("followups")} />
         </div>
       </nav>
     </main>
+  );
+}
+
+function Nav({ label, icon, active, onClick }) {
+  return (
+    <button onClick={onClick} className={active ? "text-blue-600 font-black" : "text-slate-500"}>
+      {icon}
+      <br />
+      {label}
+    </button>
+  );
+}
+
+function SectionTitle({ title, count }) {
+  return (
+    <div className="flex justify-between items-center">
+      <h2 className="text-xl font-black">{title}</h2>
+      <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-black">
+        {count}
+      </span>
+    </div>
+  );
+}
+
+function Cards({ items, markDone, reopen, openWhatsapp, openCalendar }) {
+  if (!items.length) {
+    return (
+      <div className="bg-white rounded-2xl p-5 shadow text-slate-500">
+        Nothing here.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {items.map((item) => {
+        const done = item.status === "completed";
+
+        return (
+          <div key={item.id} className="bg-white rounded-2xl p-5 shadow">
+            <p className="text-xs text-blue-600 font-black uppercase">
+              {item.interaction_type || item.task_type || "Follow-up"}
+            </p>
+
+            <h3 className="font-black text-lg mt-1">
+              {item.contact_name || item.title}
+            </h3>
+
+            <p className="text-slate-500">
+              {item.company_name || item.topic || ""}
+            </p>
+
+            {item.discussion_notes && (
+              <p className="mt-3 text-slate-700">
+                <strong>Discussed:</strong> {item.discussion_notes}
+              </p>
+            )}
+
+            {item.agreed_actions && (
+              <p className="mt-3 text-slate-700">
+                <strong>Agreed:</strong> {item.agreed_actions}
+              </p>
+            )}
+
+            {item.pending_from_them && (
+              <p className="mt-3 text-slate-700">
+                <strong>Pending:</strong> {item.pending_from_them}
+              </p>
+            )}
+
+            {item.follow_up_date && (
+              <p className="mt-3 bg-blue-50 text-blue-700 rounded-xl p-3 font-black">
+                Follow-up: {item.follow_up_date} {item.follow_up_time || ""}
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <button onClick={() => openCalendar(item)} className="bg-[#071a33] text-white rounded-2xl p-3 font-black">
+                Calendar
+              </button>
+
+              <button onClick={() => openWhatsapp(item)} className="bg-green-100 text-green-700 rounded-2xl p-3 font-black">
+                WhatsApp
+              </button>
+            </div>
+
+            <button
+              onClick={() => (done ? reopen(item.id) : markDone(item.id))}
+              className={`w-full mt-3 rounded-2xl p-3 font-black ${
+                done ? "bg-yellow-100 text-yellow-700" : "bg-blue-100 text-blue-700"
+              }`}
+            >
+              {done ? "Reopen" : "Done"}
+            </button>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
